@@ -44,7 +44,7 @@ Try to start small and build things up. E.g. if you want to implement and train 
 1. Only after succesfully finishing the above two steps try to train the full hypernetwork.
 
 ## Debug locally, run on Snellius
-TODO
+Try not to debug anything on Snellius. Your script will have to wait in a queue, so it'll take an unpredictable amount of extra time before you have your stack trace. Instead try to debug your code on some local computer, and then sync the debugged code with Snellius using Github.
 
 ## Define success clearly
 Before you start running experiments, come up with criteria of succes. Define and implement metrics that tell you how good a model is compared to other models, and implement baselines to compare to.
