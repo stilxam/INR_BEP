@@ -13,8 +13,8 @@ import sys
 
 def main(  # since we run this using fire, all parameters become command line arguments
         sweep_id:str,
-        count:int,
-        project:str='crystals',
+        count:int=1,
+        project:str='inr_edu_24',
         entity:str='nld',
         model_kwarg_in_trainer:str='hypernetwork',
         model_sub_config_name_base:str='model',
@@ -30,6 +30,7 @@ def main(  # since we run this using fire, all parameters become command line ar
     :parameter sweep_id: the id of the wandb sweep
     :parameter count: the number of experiments to run with the same wandb agent
         NB due to a problem with wandb, this is best kept to 1. Just call this script multiple times using a bash script.
+        default: 1
     :parameter project: the wandb project
     :parameter entity: the wandb entity
     :parameter model_kwarg_in_trainer: the key in the trainer that should be used to pass the model.

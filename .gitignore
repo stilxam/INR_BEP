@@ -2,3 +2,4 @@
 example_data/MNIST
 zut.ipynb
 wandb
+*.out

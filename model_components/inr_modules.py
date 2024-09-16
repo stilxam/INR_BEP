@@ -30,7 +30,7 @@ class MLPINR(INRModule):
     input_layer: INRLayer
     hidden_layers: list[INRLayer]
     output_layer: Linear
-    post_processor: Callable=staticmethod(aux.real_part)
+    post_processor: Callable=aux.real_part
 
     @classmethod
     def from_config(
