@@ -76,7 +76,9 @@ Then follow the instructions here: https://jax.readthedocs.io/en/latest/installa
 
 And check that everything worked e.g. by running python and trying to generate a random key.
 
-
+## Setting up your IDE to work with WSL
+* For vscode see https://code.visualstudio.com/docs/remote/wsl 
+* For Pycharm see https://www.jetbrains.com/help/pycharm/using-wsl-as-a-remote-interpreter.html#configure-wsl 
 # Other notes
 You'll also want to install **Pytorch** to run some of the examples locally. This should probably be the **cpu only** version of Pytorch as you might otherwise get conflicts with the wrong cuda verion being used. 
 
