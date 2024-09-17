@@ -13,8 +13,7 @@ However, it is by no means mandatory to make use of this repository. If you want
 
 NB `hypernetwork_utils` imports some stuff from `inr_utils`, so if you start extending or changing these modules, make sure not to create circular imports where A imports B but B tries to import A. 
 
-# Tools from `common_dl_utils` and `common_jax_utils`
-TODO write about how to use these tools
+
 
 # Words of advice
 You have very limited time to conduct all experiments, but also many hands that can work on this. Try to do all the coding as a group instead of letting one group member do all the coding. Ideally, you'll have one person work on the model architecture, another person on the train step, yet another on the metrics used during training,  etc. The following are some words of advice on how to make this go smoothly:
@@ -65,3 +64,187 @@ It can be very tempting in that situation to just make a few adjustments and to 
 If the model is training okay-ish, but you're not entirely happy with the performance, don't manually adjust hyperparameters, just setup a hyperparameter sweep instead and have snellius automatically try a whole bunch of things. Look at the examples in `inr_hyperparameter_sweep_example.ipynb` and... for this.
 
 If the model is performing horribly no matter what hyperparameters you pick, don't keep trying new hyper parameters, but see if there is some bug in e.g. the data loading. Are you sure that the data has the shape you expect (maybe channels are last where you expected first, or vice versa)? Did you accidentally rescale the data twice (from [0, 255] to [0, 1] and then accidentaly to [0, 1/255])? Can you maybe get it to work on a mini version of your dataset? Can you explain what all the code is doing to one of your group mates, or to a [rubber duck](https://rubberduckdebugging.com/)?
+
+# Tools from `common_dl_utils` and `common_jax_utils`
+When doing experiments in deep learning, you get to the point where, you've written your model and an architecture, you've written your training loop, you've written your metrics and code to log those metrics either to Weights and Biases or so some log files on your file system, and now you want to run your experiment.
+
+For this you need some code that creates the model, and runs the train loop. But you want it to be flexible: maybe it should read the hyperparameters from some config file or object. This starts out easy enough: you know what the parameters are that need to be decided, so you can just fill them out like
+
+```python
+model = MyModelClass(
+    input_size = config["input_size"],
+    output_size = config["output_size"],
+    hidden_size = config["hidden_size"],
+    depth = config["depth"],
+    w0 = config["w0"]
+)
+```
+Easy enough! But then, while running experiments, you decide that you want to see if maybe the Gaussian layers work better than the Siren layers. Okay, well, just add an if-statement
+
+```python
+if config["layer"] == "siren":
+    model = MyModelClass(
+        input_size = config["input_size"],
+        output_size = config["output_size"],
+        hidden_size = config["hidden_size"],
+        depth = config["depth"],
+        w0 = config["w0"]
+    )
+elif config["layer"] == "gauss":
+    model = MyModelClassGauss(
+        input_size = config["input_size"],
+        output_size = config["output_size"],
+        hidden_size = config["hidden_size"],
+        depth = config["depth"],
+        inverse_scaling = config["inverse_scaling"]
+    )
+else:
+    raise NotImplementedError(f"No model implemented for {config["layer"]=}")
+```
+You keep experimenting and over the course of the project, you add if-statements on whether to use all sorts of things, like stochastic weight averaging in the training loop, what exact loss function to use, 2 more types of models, and of course everything to do with the baselines. During this process, this "glue" code holding everything together can become quite complicated, and each time you want to make an adjustment, the cost of doing so rises because you have more code to modify.
+
+This is the problem that the tools from `common_dl_utils` and `common_jax_utils` try to fix: they provide this "glue" code in a generic way. The idea is as follows: while writing the functions for creating your model, train loop, etc. (e.g. the `__init__` method, or some `from_params` class-method), you indicate what type each argument should be. `common_dl_utils` keeps a **registry of types that require special attention**. If an argument doesn't need special attention, e.g. it's an `int` or a `float`, we can just pull it from the config automatically by matching the parameter name. If it does need special attention, e.g. because it is a class that itself needs initializing, we just first prepare that class from config in the same way.
+
+So for example, if your model code in `my_model_code.py` looks like
+```python
+import jax
+import equinox as eqx
+from model_components.inr_layers import INRLayer
+
+class AutoEncoder(eqx.Module):
+    encoder: eqx.Module
+    decoder: eqx.Module
+    auxiliary_regressor: eqx.Module
+
+    def __init__(self, encoder:eqx.Module, decoder:eqx.Module, auxiliary_regressor: eqx.Module):
+        ...
+    
+    def __call__(self, x):
+        z = self.encoder(x)
+        y_pred = self.auxiliary_regressor(z)
+        x_pred = self.decoder(z)
+        return x_pred, y_pred
+
+class ConvEncoder(eqx.Module):
+    ...
+    def __init__(self, data_channels:int, latent_size:int, hidden_channels:int, kernel_size:int, depth:int, ndim:int, key: jax.Array):
+        ...
+
+
+class Regressor(eqx.Module):
+    ...
+    def __init__(self, latent_size:int, pred_size: int, depth:int, key:jax.Array):
+        ...
+
+
+class INRDecoder(eqx.Module):
+    ...
+    def __init__(
+            self, 
+            latent_size: int, 
+            mlp_depth:int, 
+            mlp_width: int, 
+            ndim: int, 
+            inr_depth: int
+            data_channels: int,
+            inr_layer_type: type[INRLayer],
+            inr_layer_kwargs: dict,
+            key: jax.Array
+            ):
+        ...
+    
+    def __call__(self, z:jax.Array)->eqx.Module:
+        ...
+        return x_pred_inr
+
+class ConvDecoder(eqx.Module):  # baseline
+    ...
+    def __init__(
+        self,
+        latent_size:int,
+        data_channels:int,
+        hidden_channels:int,
+        depth:int,
+        kernel_size:int,
+        key: jax.Array
+    ):
+    ...
+
+    def __call__(self, z:jax.Array)->jax.Array:
+        ...
+        return x_pred
+```
+then you can automatically match this with a config like
+```python
+config = dict(
+    architecture = "my_model_code.py",
+    model_type = "AutoEncoder",
+    encoder = "ConvEncoder",
+    encoder_config = dict(
+        hidden_channels = 64,
+        kernel_size = 3,
+        depth = 6
+    ),
+    auxiliary_regressor = "Regressor",
+    auxiliary_regressor_config = dict(
+        pred_size = 10,
+        depth = 4
+    ),
+    decoder = "INRDecoder",
+    decoder_config = dict(
+        mlp_depth = 3,
+        mlp_width = 1024,
+        inr_depth = 6,
+        inr_layer_type = "inr_layers.SirenLayer",  # add "./model_components" to default modules
+        # because 'inr_layer_type' has a typehint like `type[...]`, this too will result in the appropriate class
+        # in the appropriate module, but without that class getting initialized.
+        inr_layer_kwargs = {"w0": 30.}
+    )
+    # the following are shared between the encoder, auxiliary_regressor, and decoder
+    latent_size = 64,
+    data_channels = 3,
+    ndim = 2,
+)
+```
+and create a model from it using `common_jax_utils.run_utils.get_model_from_config_and_key` like
+```python
+from jax import random
+from common_jax_utils.run_utils import get_model_from_config_and_key
+import model_components
+
+model = get_model_from_config_and_key(
+    prng_key = jax.random.key(1234),
+    config = config,
+    additional_model_default_modules = [model_components]  # so that we could easily refer to inr_layers.SirenLayer
+)
+```
+NB this goes well because `common_jax_utils`, upon import, automatially adds `equinox.Module` to the registry of types that require special attention. If you want to add another type to this registry, you can do so by using `common_jax_utils.types.register_type` or `common_dl_utils.type_registry.register_type`. With this, type annotations such as `Optional[equinox.Module]`, or `list[equinox.Module]` are also recognised.
+
+NB you can also add more layers of nesting in your config if you want. See `inr_example.ipynb` and `hyper_network_example.ipynb` for more examples.
+
+Now if you later decide that you want to experiment with a res-net for your encoder, and write a corresponding `eqx.Module` in some `res_architecute.py` module, like
+```python
+class ResidualConvEncoder(eqx.Module):
+    ...
+    def __init__(self, data_channels:int, latent_size:int, hidden_channels:int, kernel_size:int, num_blocks:int, ndim:int, key:jax.Array):
+        ...
+```
+you can get this from your config by modifiying it slightly like
+```python
+config["encoder"] = ("./res_architecture.py", "ResidualConvEncoder")
+config["encoder_config"] = dict(
+    hidden_channels=64,
+    kernel_size=3,
+    num_blocks=8
+)
+```
+without having to write extra logic aroud this.
+
+NB setting `config["encoder"]` to a tuple of two strings `(path, name)` tells `get_model_from_config_and_key` to import the module found at `path` and then look for the class specified by `name` within that module. If you specify it as a single string `name`, it will look for `name` in the given default modules (i.e. the one specified by `config["architecture"]` and those specified by `additional_model_default_modules`). You can also specify it as `(path:str, name:str, sub_config:dict)`, in which case the parameters of the class/callable specified by `name` will first be filled in with those found in `sub_config`, then by andy default parameters of said class, and finally by those found in `config`. Finally, `name` need not refer to just a class, but can also refer to a method, e.g. `('./model_components', 'inr_layers.SirenLayer.from_config', {"is_first_layer"=True})`
+
+## Using these tools
+You are free to use these tools if you want, or to ignore them if you don't want to use them.
+If you run into any bugs in `common_dl_utils` or `common_jax_utils` (or any of the code in this repository) please let me know!
+If you have any questions on how to do things with them, don't hesitate to contact me.
+
+Also, if providing correct type hints for your code is for some reason too inconvenient, these tools don't actually do type checking, so if you want, you can just use incorrect/incomplete type hints as long as they indicate whether the argument is something that will need initializing with its own arguments or not.
