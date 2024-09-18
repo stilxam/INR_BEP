@@ -80,6 +80,11 @@ And check that everything worked e.g. by running python and trying to generate a
 * For vscode see https://code.visualstudio.com/docs/remote/wsl 
 * For Pycharm see https://www.jetbrains.com/help/pycharm/using-wsl-as-a-remote-interpreter.html#configure-wsl 
 # Other notes
+This repository uses Equinox, but requires a lower version than 0.11.6. So start by installing **Equinox version 0.11.5** by typing
+```
+pip install equinox==0.11.5
+```
+
 You'll also want to install **Pytorch** to run some of the examples locally. This should probably be the **cpu only** version of Pytorch as you might otherwise get conflicts with the wrong cuda verion being used. 
 
 To do this with anaconda, run
