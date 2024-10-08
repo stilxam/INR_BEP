@@ -18,3 +18,9 @@ def unscaled_gaussian_bump(*x:jax.Array, inverse_scale:Union[float, jax.Array]):
     else:
         scaled_x = jnp.abs(inverse_scale*x)
     return jnp.exp(-jnp.sum(jnp.square(scaled_x), axis=0))
+
+
+def real_wire(*x: jax.Array, inverse_scale:Union[float, jax.Array], w0:Union[float, jax.Array]):
+    gaus_part = unscaled_gaussian_bump(*x, inverse_scale=inverse_scale)
+    rot_part = jnp.sin(w0*x[0])
+    return rot_part*gaus_part

@@ -214,7 +214,16 @@ class SirenLayer(INRLayer):
     @staticmethod
     def _activation_function(x, w0):
         return jnp.sin(w0*x)
-    
+
+
+class RealWire(SirenLayer):  # TODO make nice
+    allowed_keys = frozenset({'w0', 'inverse_scale'})
+    allows_multiple_weights_and_biases = True
+
+    @staticmethod
+    def _activation_function(x, w0, inverse_scale):
+        return act.real_wire(x, inverse_scale=inverse_scale, w0=w0)
+
 
 class Linear(INRLayer):
     """
