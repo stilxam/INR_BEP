@@ -37,3 +37,29 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
     radial_part = unscaled_gaussian_bump(*x, inverse_scale=s0)
     rotational_part = jnp.sin(w0*x[0])
     return rotational_part*radial_part
+
+def complex_wire(x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Array]):
+    """
+    Implements a complex version of WIRE
+    that is exp(j*w0*x)*exp(-|s0*x'|^2)
+    from https://arxiv.org/pdf/2301.05187
+
+    :parameter x: a bunch of `jax.Array`s to be fed to this activation function
+        var positional
+    :parameter s0: inverse scale used in the radial part of the wavelet (s_0 in the paper)
+        keyword only
+    :parameter w0: w0 parameter used in the rotational art of the wavelet (\omega_0 in the paper)
+        keyword only
+    :return: a `jax.Array` with a shape determined by broadcasting all elements of x to tha same shape
+    """
+    radial_part = jnp.exp(
+        -jnp.square(
+            jnp.abs(
+                s0 * x
+            )
+        )
+    )
+    rotational_part = jnp.exp(1j * w0 * x)
+
+
+    return rotational_part*radial_part

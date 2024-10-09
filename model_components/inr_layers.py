@@ -227,6 +227,23 @@ class RealWire(SirenLayer):
     # TODO write new from_config function that allows for WIRE 2D/3D etc.
 
 
+class ComplexWire(SirenLayer):
+    """
+    ComplexWire INRLayer
+    :param weights: jax.Array containing the weights of the linear part
+    :param biases: jax.Array containing the bias of the linear part
+    :param w0: w0 hyperparameter as introduced in the SIREN paper by Sitzmann et al.
+    :param s0: s0 hyperparameter as introduced in the WIRE paper by Ramasinghe and Lucey
+    """
+    allowed_keys = frozenset({'w0', 's0'})
+    allows_multiple_weights_and_biases = False
+
+    @staticmethod
+    def _activation_function(x, w0, s0):
+        return act.complex_wire(x, s0=s0, w0=w0)
+
+
+
 class Linear(INRLayer):
     """
     Linear INRLayer
