@@ -9,6 +9,7 @@ and then passes those to the __init__ function of the required class.
 """
 import abc
 from typing import Union, Callable
+from collections.abc import Sequence
 import inspect
 
 import jax
@@ -25,6 +26,7 @@ class INRLayer(eqx.Module):
     To create a new INRLayer type implement three things:
     1) define the _activation_function
     2) provide an initialization scheme for the weights and biases by defining a from_config classmethod.
+    3) provide a (frozen) set of allowed_keys
 
     Additionally one should provide a frozen set, allowed_keys, of allowed key word arguments for the activation function
     and provide a boolean, allows_multiple_weights_and_biases, indicating whether the layer can have a list/tuple of weight matrices and bias vectors, or allows only one of each.
@@ -130,17 +132,28 @@ class INRLayer(eqx.Module):
     
     @classmethod
     @abc.abstractmethod
-    def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
+    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
         """
         Abstract classmethod
         This should initialize the weights and biases based on hyperparameters and a prng key.
+
+        :parameter in_size: dimensionality of the input to the layer
+        :parameter out_size: dimensionality of the output of the layer
+        :parameter num_splits: some layers may process the same input using multiple weights matrices and bias vectors. In those layers,
+            num_splits determines the number of weights matrices and bias vectors that is to be used.
+        :parameter key: prng key for initializing with random weights and biases
+        :parameter is_first_layer: some layers may use a different initialization scheme when they are the first layer in an INR. This boolean
+            parameter is used to indicate to such layers whether they are the first layer in an INR or not.
+        :parameter activation_kwargs: any additional hyperparameters necessary for the layer. E.g. w0 for SIREN
         """
         pass
 
-    def __call__(self, x):
+    def __call__(self, x:jax.Array):
         if isinstance(self.weights, (list, tuple)):
+            # when num_splits > 1
             wxb = [w@x + b for w, b in zip(self.weights, self.biases)]
         else:
+            # when num_splits=1
             wxb = (self.weights@x + self.biases,)
         return self.activation_function(*wxb)
     
@@ -179,7 +192,7 @@ class SirenLayer(INRLayer):
         :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
         :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
 
-        :raises: ValueError if any other activation_kwargs than 'w0' are provided
+        :raises: ValueError if 'w0' is not provided
 
         :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
         """
@@ -217,6 +230,17 @@ class SirenLayer(INRLayer):
 
 
 class RealWire(SirenLayer):
+    """ 
+    Example implementation of the Real WIRE layer (without complex numbers) from https://arxiv.org/abs/2301.05187 (Section 3.4 on "Alternative forms of WIRE")
+    :parameter weights: `jax.Array` containing the weights matrix or sequence of `jax.Array`s containint the various weights matrices for the various splits (in WIRE 2D or 3D)
+        NB if a sequence of weights matrices is provided, their shape should be identical.
+    :parameter biases: `jax.Array` containing the bias vector or sequence of `jax.Array`s containing the various bias vectors for the various splits (in WIRE 2D or 3D)
+        NB if a sequence of bias vectors is provided, the length of the sequence should be identical to the length of the sequence of weights matrices.
+    :parameter w0: frequency parameter of the Gabor Wavelet (\omega_0 in the paper)
+    :parameter s0: inverse scale or width parameter of the Gaussian (s_0 in the paper)
+
+    The initialization scheme is that of SIREN
+    """
     allowed_keys = frozenset({'w0', 's0'})
     allows_multiple_weights_and_biases = True
 
@@ -225,6 +249,69 @@ class RealWire(SirenLayer):
         return act.real_wire(x, s0=s0, w0=w0)
     
     # TODO write new from_config function that allows for WIRE 2D/3D etc.
+    
+    @staticmethod
+    def _initialize_single_weights_and_bias(in_size:int, out_size:int, w0:float, is_first_layer:bool, key:jax.Array)->tuple[jax.Array, jax.Array]:
+        """ 
+        Initialize a single weights matrix and bias vector using the initialization scheme for SIREN
+        :parameter in_size: dimensionality of the input to the layer
+        :parameter out_size: dimensionality of the output of the layer
+        :parameter w0: frequency parameter (\omega_0 in both the SIREN and the WIRE paper)
+        """
+        w_key, b_key = jax.random.split(key)
+
+        if is_first_layer:
+            lim = 1./in_size# from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+        else:
+            lim = jnp.sqrt(6./in_size)/w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
+        
+        weight = jax.random.uniform(
+            key=w_key,
+            shape=(out_size, in_size),
+            minval=-lim, 
+            maxval=lim
+            )
+            
+        bias = jax.random.uniform(
+            key=b_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1
+        )
+        bias_factor = jnp.pi/jnp.sqrt(jnp.sum(jnp.square(weight), axis=1)) # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
+        bias = bias_factor * bias
+        return weight, bias
+    
+    @classmethod
+    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+        """from_config create a layer from hyperparameters
+
+        :parameter in_size: size of the input
+        :parameter out_size: size of the output
+        :parameter num_splits: number of weights matrices used, defaults to 1
+            Set this to 2 for WIRE2D and 3 for WIRE3D (etc.)
+        :parameter key: key for random number generator (keyword only)
+        :parameter is_first_layer: whether this is the first layer in an INR or not (keyword only)
+        :parameter w0: frequency parameter (\omega_0 in both the SIREN and the WIRE paper)
+        :parameter s0: inverse scale or width parameter of the Gaussian (s_0 in the paper)
+
+        :raises: ValueError if 'w0' or 's0' is not provided
+
+        :return: a RealWIRE with weights and biases initialized according to the scheme provided in the original SIREN paper
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+        w0 = activation_kwargs['w0']
+        s0 = activation_kwargs['s0']
+
+        if num_splits == 1:
+            weight, bias = cls._initialize_single_weights_and_bias(in_size=in_size, out_size=out_size, w0=w0, is_first_layer=is_first_layer, key=key)
+            return cls(weight, bias, w0=w0, s0=s0)
+        
+        keys = jax.random.split(key, num_splits)
+        weights, biases = jax.vmap(lambda k: cls._initialize_single_weights_and_bias(in_size=in_size, out_size=out_size, w0=w0, is_first_layer=is_first_layer, key=k))(keys)
+        weights = jnp.unstack(weights)
+        biases = jnp.unstack(biases)
+        return cls(weights, biases, w0=w0, s0=s0)
 
 
 class Linear(INRLayer):
@@ -331,3 +418,66 @@ class GaussianINRLayer(INRLayer):
             maxval=1
             )
         return cls(weights, biases, **activation_kwargs)
+
+
+class EmbeddingLayer(eqx.Module):
+    """ 
+    Base class for various kinds of positional encodings. Because the positional encoding from NeRF is often just called "positional encoding" in the literature,
+    we're calling this base class EmbeddingLayer, so as not to create confusion between a generic positional encoding and the specific type of positional encoding 
+    used in NeRF. 
+    """
+    _embedding_matrix: Union[jax.Array, Sequence[jax.Array]]
+    _is_learnable: eqx.AbstractClassVar[bool]
+
+    def __init__(self, embedding_matrix):
+        self._embedding_matrix = embedding_matrix
+
+    @property
+    def embedding_matrix(self):
+        """ 
+        Get the embedding matrix of the EmbeddingLayer
+        If not self._is_learnable, apply jax.lax.stop_gradient to prevent the matrix from being changed during training.
+        """
+        if self._is_learnable:
+            return self._embedding_matrix
+        else:
+            return jax.lax.stop_gradient(self._embedding_matrix)
+        
+    @abc.abstractmethod
+    def out_size(self, in_size:int)->int:
+        """ 
+        Return the number of output channels given the number of input channels
+        :parameter in_size: dimensionality of the input
+        :returns: dimensionality of the embedding
+        """
+        pass
+
+
+class PositionalEncoding(EmbeddingLayer):
+    """ 
+    The standard positional encoding used in NeRF (among other places).
+    See https://arxiv.org/pdf/2003.08934v2 (NeRF paper) equation 4 (page 7)
+    """
+    _is_learnable = False
+
+    @classmethod
+    def from_config(cls, num_frequencies:int, frequency_scaling=2.):
+        """ 
+        :parameter num_frequencies: L in equation 4 of the NeRF paper.
+            The output of this layer will be 2*num_frequencies*<number of input channels> dimensional
+        """
+        powers = jnp.arange(num_frequencies, dtype=jnp.int32)
+        embedding_matrix = jnp.pow(frequency_scaling, powers)*jnp.pi  # not really the embedding matrix, but we do just apply this to each coordinate as scalar (coordinate) vector (embedding_matrix) multiplication
+        return cls(embedding_matrix)
+    
+    def __call__(self, x):
+        frequencies = jax.vmap(lambda coordinate: coordinate*self.embedding_matrix)(x).flatten()
+        return jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(frequencies).flatten()
+    
+    def out_size(self, in_size):
+        """ 
+        Return the number of output channels given the number of input channels
+        :parameter in_size: dimensionality of the input
+        :returns: dimensionality of the embedding
+        """
+        return 2*self.embedding_matrix.shape[0]*in_size
