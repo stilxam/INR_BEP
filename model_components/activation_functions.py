@@ -37,3 +37,11 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
     radial_part = unscaled_gaussian_bump(*x, inverse_scale=s0)
     rotational_part = jnp.sin(w0*x[0])
     return rotational_part*radial_part
+
+def finer_activation(x: jax.Array):
+    """
+    FINER activation function: sin((|x| + 1) * x)
+    :param x: input array for activation
+    :return: output array after applying variable-periodic function
+    """
+    return jnp.sin((jnp.abs(x) + 1) * x)
