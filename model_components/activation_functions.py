@@ -40,18 +40,15 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
 
 
 
-def generate_alpha(x):
+def finer_activation(x, w0):
     """
-    Generates a scaling factor (alpha) for input x based on its magnitude.
+    FINER activation function: sin((|x| + 1) * x)
+    :param x: input array for activation
+    :param omega: frequency scaling factor
+    :return: output array after applying variable-periodic function
     """
-    return jnp.abs(x) + 1
+    return jnp.sin((jnp.abs(x) + 1) * w0 * x)
 
-def finer_activation(x, omega=1):
-    """
-    Variable-periodic activation function for FINER.
-    """
-    alpha = generate_alpha(x)
-    return jnp.sin(omega * alpha * x)
 
 
 

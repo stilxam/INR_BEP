@@ -338,54 +338,39 @@ class GaussianINRLayer(INRLayer):
 
 class FinerLayer(INRLayer):
     """
-    FINER layer with custom initialization and activation function.
+    FINER Layer using variable-periodic activation functions.
+    This layer applies a linear transformation followed by a FINER sine activation.
     """
-    allowed_keys = frozenset({'omega'})  # Omega for frequency control
+
+    allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
-
-    def __init__(self, in_size, out_size, omega=30, is_last=False, key=None, is_first=False, fbs=None):
-        """
-        Initialize FinerLayer with specific weight and bias initialization for FINER requirements.
-        
-        :param in_size: Number of input features.
-        :param out_size: Number of output features.
-        :param omega: Frequency control parameter.
-        :param is_last: Whether this is the last layer.
-        :param key: JAX random key for initialization.
-        :param is_first: Indicates if this is the first layer in the network.
-        :param fbs: Bound for bias initialization for the first layer.
-        """
-        # Perform custom weight initialization based on FINER requirements
-        w_key, b_key = jax.random.split(key)
-        fan_in = in_size
-        bound = 1.0 / fan_in if is_first else jnp.sqrt(6.0 / fan_in) / omega
-        self.weight = jax.random.uniform(w_key, shape=(out_size, in_size), minval=-bound, maxval=bound)
-
-        # Custom bias initialization if this is the first layer
-        if is_first and fbs is not None:
-            self.bias = jax.random.uniform(b_key, shape=(out_size,), minval=-fbs, maxval=fbs)
-        else:
-            self.bias = jax.random.uniform(b_key, shape=(out_size,), minval=-1.0, maxval=1.0)
-        
-        # Save other layer-specific parameters
-        self.omega = omega
-        self.is_last = is_last
-
-    def __call__(self, x):
-        # Apply linear transformation and FINER activation if not last layer
-        wx_b = jnp.dot(x, self.weight.T) + self.bias
-        return wx_b if self.is_last else act.finer_activation(wx_b, omega=self.omega)
+    _activation_function = staticmethod(act.finer_activation)
     
-    def initialize(self, in_size, out_size, omega=30, is_first=False, fbs=None, key=None):
+    @classmethod
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool, **activation_kwargs):
         """
-        FINER-specific initialize method to handle unique weight and bias initialization.
+        Initialize FINER layer from hyperparameters
+        :param in_size: size of the input
+        :param out_size: size of the output
+        :param num_splits: ignored, defaults to 1
+        :param key: PRNG key for random number generator
+        :param is_first_layer: boolean indicating if this is the first layer
+        :param w0: scaling factor similar to SIREN (keyword only)
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+        w0 = activation_kwargs['w0']
+        w_key, b_key = jax.random.split(key)
+        # Weight initialization similar to SIREN
+        if is_first_layer:
+            lim = 1.0 / in_size
+        else:
+            lim = jnp.sqrt(6.0 / in_size) / w0
+        weights = jax.random.uniform(w_key, shape=(out_size, in_size), minval=-lim, maxval=lim)
         
-        :param in_size: Input size.
-        :param out_size: Output size.
-        :param omega: Frequency control for activation.
-        :param is_first: Boolean to apply special initialization for the first layer.
-        :param fbs: Bound for bias initialization for the first layer.
-        :param key: Random key for weight and bias initialization.
-        """
-        self.__init__(in_size=in_size, out_size=out_size, omega=omega, is_first=is_first, fbs=fbs, key=key)
+        # Bias initialization over a larger range to flexibly tune the frequency set
+        k = 20  # As per the FINER paper
+        biases = jax.random.uniform(b_key, shape=(out_size,), minval=-k, maxval=k)
+        return cls(weights, biases, **activation_kwargs)
+
+
 
