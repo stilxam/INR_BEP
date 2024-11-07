@@ -420,7 +420,6 @@ class GaussianINRLayer(INRLayer):
         return cls(weights, biases, **activation_kwargs)
 
 
-
 class FinerLayer(INRLayer):
     """
     FINER Layer using variable-periodic activation functions.
@@ -458,14 +457,9 @@ class FinerLayer(INRLayer):
         return cls(weights, biases, **activation_kwargs)
 
 
-
-
-
-class EmbeddingLayer(eqx.Module):
+class PositionalEncodingLayer(eqx.Module):
     """ 
-    Base class for various kinds of positional encodings. Because the positional encoding from NeRF is often just called "positional encoding" in the literature,
-    we're calling this base class EmbeddingLayer, so as not to create confusion between a generic positional encoding and the specific type of positional encoding 
-    used in NeRF. 
+    Base class for various kinds of positional encodings. 
     """
     _embedding_matrix: Union[jax.Array, Sequence[jax.Array]]
     _is_learnable: eqx.AbstractClassVar[bool]
@@ -476,7 +470,7 @@ class EmbeddingLayer(eqx.Module):
     @property
     def embedding_matrix(self):
         """ 
-        Get the embedding matrix of the EmbeddingLayer
+        Get the embedding matrix of the PositionalEncodingLayer
         If not self._is_learnable, apply jax.lax.stop_gradient to prevent the matrix from being changed during training.
         """
         if self._is_learnable:
@@ -494,7 +488,7 @@ class EmbeddingLayer(eqx.Module):
         pass
 
 
-class PositionalEncoding(EmbeddingLayer):
+class ClassicalPositionalEncoding(PositionalEncodingLayer):
     """ 
     The standard positional encoding used in NeRF (among other places).
     See https://arxiv.org/pdf/2003.08934v2 (NeRF paper) equation 4 (page 7)
@@ -502,7 +496,7 @@ class PositionalEncoding(EmbeddingLayer):
     _is_learnable = False
 
     @classmethod
-    def from_config(cls, num_frequencies:int, frequency_scaling=2.):
+    def from_config(cls, num_frequencies:int, frequency_scaling:float=2.):
         """ 
         :parameter num_frequencies: L in equation 4 of the NeRF paper.
             The output of this layer will be 2*num_frequencies*<number of input channels> dimensional
