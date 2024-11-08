@@ -8,7 +8,7 @@ Alternatively one can write an initialization function that comes up with the we
 and then passes those to the __init__ function of the required class.
 """
 import abc
-from typing import Union, Callable
+from typing import Union, Callable, Optional
 from collections.abc import Sequence
 import inspect
 
@@ -148,7 +148,8 @@ class INRLayer(eqx.Module):
         """
         pass
 
-    def __call__(self, x:jax.Array):
+    def __call__(self, x:jax.Array, *, key:Optional[jax.Array]):
+        # key just to have it be compatible with eqx.nn.Sequential
         if isinstance(self.weights, (list, tuple)):
             # when num_splits > 1
             wxb = [w@x + b for w, b in zip(self.weights, self.biases)]
@@ -457,7 +458,7 @@ class FinerLayer(INRLayer):
         return cls(weights, biases, **activation_kwargs)
 
 
-class PositionalEncodingLayer(eqx.Module, eqx.nn.StatefulLayer):
+class PositionalEncodingLayer(eqx.nn.StatefulLayer):
     """ 
     Base class for various kinds of positional encodings. 
     """
@@ -511,7 +512,7 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
         embedding_matrix = jnp.pow(frequency_scaling, powers)*jnp.pi  # not really the embedding matrix, but we do just apply this to each coordinate as scalar (coordinate) vector (embedding_matrix) multiplication
         return cls(embedding_matrix)
     
-    def __call__(self, x):
+    def __call__(self, x, *, key:Optional[jax.Array]=None)->jax.Array:
         frequencies = jax.vmap(lambda coordinate: coordinate*self.embedding_matrix)(x).flatten()
         return jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(frequencies).flatten()
     
