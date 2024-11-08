@@ -457,7 +457,7 @@ class FinerLayer(INRLayer):
         return cls(weights, biases, **activation_kwargs)
 
 
-class PositionalEncodingLayer(eqx.Module):
+class PositionalEncodingLayer(eqx.Module, eqx.nn.StatefulLayer):
     """ 
     Base class for various kinds of positional encodings. 
     """
@@ -486,6 +486,12 @@ class PositionalEncodingLayer(eqx.Module):
         :returns: dimensionality of the embedding
         """
         pass
+
+    def is_stateful(self)->bool:
+        """ 
+        Indicate whether the positional embedding is stateful or not.
+        """
+        return False
 
 
 class ClassicalPositionalEncoding(PositionalEncodingLayer):
