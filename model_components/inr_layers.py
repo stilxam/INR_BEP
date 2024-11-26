@@ -284,8 +284,8 @@ class RealGaborWavelet(INRLayer):
         return cls(weights, biases, **activation_kwargs)
 
     @staticmethod
-    def _activation_function(x, w0, s0):
-        return act.real_wire(x, s0, w0)
+    def _activation_function(*x, w0, s0):
+        return act.real_wire(*x, s0=s0, w0=w0)
 
 
 
@@ -383,8 +383,8 @@ class ComplexGaborWavelet(INRLayer):
         return cls(weight, bias, **activation_kwargs)
 
     @staticmethod
-    def _activation_function(x, w0, s0):
-        return act.WIRE(x, s0, w0)
+    def _activation_function(*x, w0, s0):
+        return act.WIRE(*x, s0=s0, w0=w0)
 
 
 class Linear(INRLayer):
