@@ -19,6 +19,7 @@ from common_jax_utils import key_generator
 import model_components.auxiliary as aux
 import model_components.activation_functions as act
 
+
 class INRLayer(eqx.Module):
     """
     INRLayer (abstract) base class for INR layers
@@ -38,7 +39,8 @@ class INRLayer(eqx.Module):
 
     activation_kwargs: dict = eqx.field(static=True)  # think w0 for siren or inverse_scale for gaussian
     _activation_function: eqx.AbstractClassVar[Callable]
-    allowed_keys: eqx.AbstractClassVar[frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
+    allowed_keys: eqx.AbstractClassVar[
+        frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
     allows_multiple_weights_and_biases: eqx.AbstractClassVar[bool]
 
     @classmethod
@@ -50,8 +52,8 @@ class INRLayer(eqx.Module):
 
         This filtering makes it easer to perform wandb sweeps where we vary the type of INR layer
         """
-        return aux.filter_allowed_keys_or_raise_value_error(activation_kwargs, *cls.allowed_keys) 
-        
+        return aux.filter_allowed_keys_or_raise_value_error(activation_kwargs, *cls.allowed_keys)
+
     @classmethod
     def _check_weights_and_biases(cls, weights, biases):
         """ 
@@ -63,23 +65,26 @@ class INRLayer(eqx.Module):
 
         if not cls.allows_multiple_weights_and_biases:
             if w_seq or b_seq:
-                raise ValueError(f"{cls.__name__} does not allow for multiple weights or biases. Got {type(weights)=} and {type(biases)=}.")
+                raise ValueError(
+                    f"{cls.__name__} does not allow for multiple weights or biases. Got {type(weights)=} and {type(biases)=}.")
             return
-        #else
+        # else
         if w_seq ^ b_seq:  # xor
-            raise ValueError(f"weights and biases should either both be a tuple/list of jax.Array objects, or both be a jax.Array. Got {type(weights)=} but {type(biases)=}.")
+            raise ValueError(
+                f"weights and biases should either both be a tuple/list of jax.Array objects, or both be a jax.Array. Got {type(weights)=} but {type(biases)=}.")
         if w_seq:
             w_len = len(weights)
             b_len = len(biases)
-            if w_len!=b_len:
-                raise ValueError(f"When providing sequences of weights and biases, the sequences should be of equal length (got len(weights)={w_len} but len(biases)={b_len})")
+            if w_len != b_len:
+                raise ValueError(
+                    f"When providing sequences of weights and biases, the sequences should be of equal length (got len(weights)={w_len} but len(biases)={b_len})")
 
     def activation_function(self, *args):
         """ 
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
         return self._activation_function(*args, **self.activation_kwargs)
-    
+
     def __init__(self, weights, biases, **activation_kwargs):
         """ 
         Initialise an INRLayer from its weights, biases, and activation_kwargs
@@ -101,7 +106,7 @@ class INRLayer(eqx.Module):
         # upon calling classmethod
         parameters = {'cls': inspect.Parameter('cls', inspect.Parameter.POSITIONAL_OR_KEYWORD)}
         parameters.update(from_config_signature.parameters)
-        #print(f"{cls.__name__}: {parameters=}")  # this was for debugging
+        # print(f"{cls.__name__}: {parameters=}")  # this was for debugging
         # TODO find out why an _InitableModule seems to be created only when using from_config and not using normal initialization
         # or at leas why _InitableModule calls this __init_subclass__ only in the former and not in the latter case
         # (not that it really matters)
@@ -120,14 +125,13 @@ class INRLayer(eqx.Module):
                     annotation=annotation
                 )
         new_signature = from_config_signature.replace(parameters=parameters.values())
-        
+
         # https://docs.python.org/3/library/stdtypes.html#methods
         # tells us we can't set attributes on (bound) methods
         # but need to set them on method.__func__ instead.
         cls.from_config.__func__.__signature__ = new_signature
         # TODO maybe consider also changing the signature of __init__ in the same way
 
-    
     @classmethod
     @abc.abstractmethod
     def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
@@ -139,22 +143,25 @@ class INRLayer(eqx.Module):
 
     def __call__(self, x):
         if isinstance(self.weights, (list, tuple)):
-            wxb = [w@x + b for w, b in zip(self.weights, self.biases)]
+            wxb = [w @ x + b for w, b in zip(self.weights, self.biases)]
         else:
-            wxb = (self.weights@x + self.biases,)
+            wxb = (self.weights @ x + self.biases,)
         return self.activation_function(*wxb)
-    
+
     @classmethod
     def complex_from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
         """
         Like from_config, but creates a layer with complex weights and biases.
         """
         key_1, key_2 = jax.random.split(key)
-        real_part = cls.from_config(in_size=in_size, out_size=out_size, num_splits=num_splits, key=key_1, is_first_layer=is_first_layer, **activation_kwargs)
-        imaginary_part = cls.from_config(in_size=in_size, out_size=out_size, num_splits=num_splits, key=key_2, is_first_layer=is_first_layer, **activation_kwargs)
+        real_part = cls.from_config(in_size=in_size, out_size=out_size, num_splits=num_splits, key=key_1,
+                                    is_first_layer=is_first_layer, **activation_kwargs)
+        imaginary_part = cls.from_config(in_size=in_size, out_size=out_size, num_splits=num_splits, key=key_2,
+                                         is_first_layer=is_first_layer, **activation_kwargs)
         weights = jax.tree_map(jax.lax.complex, real_part.weights, imaginary_part.weights)
         biases = jax.tree_map(jax.lax.complex, real_part.biases, imaginary_part.biases)
         return cls(weights, biases, **activation_kwargs)
+
 
 class SirenLayer(INRLayer):
     """
@@ -169,7 +176,8 @@ class SirenLayer(INRLayer):
     allows_multiple_weights_and_biases = False
 
     @classmethod
-    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -185,7 +193,7 @@ class SirenLayer(INRLayer):
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
         w0 = activation_kwargs['w0']
-        
+
         w_key, b_key = jax.random.split(key)
 
         if is_first_layer:
@@ -197,24 +205,25 @@ class SirenLayer(INRLayer):
         weight = jax.random.uniform(
             key=w_key,
             shape=(out_size, in_size),
-            minval=-lim, 
+            minval=-lim,
             maxval=lim
-            )
-            
+        )
+
         bias = jax.random.uniform(
             key=b_key,
             shape=(out_size,),
             minval=-1,
             maxval=1
         )
-        bias_factor = jnp.pi/jnp.sqrt(jnp.sum(jnp.square(weight), axis=1)) # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
+        bias_factor = jnp.pi / jnp.sqrt(
+            jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
         bias = bias_factor * bias
 
         return cls(weight, bias, **activation_kwargs)
 
     @staticmethod
     def _activation_function(x, w0):
-        return jnp.sin(w0*x)
+        return jnp.sin(w0 * x)
 
 
 class RealWIRE(INRLayer):
@@ -250,7 +259,7 @@ class RealWIRE(INRLayer):
         sb_key, subkey = jax.random.split(subkey)
 
         # Pytorch initialization
-        lim = 1/jnp.sqrt(in_size)
+        lim = 1 / jnp.sqrt(in_size)
 
         frequency_weight = jax.random.uniform(
             key=fw_key,
@@ -287,8 +296,6 @@ class RealWIRE(INRLayer):
     @staticmethod
     def _activation_function(*x, w0, s0):
         return act.real_gabor_wavelet(*x, s0=s0, w0=w0)
-
-
 
 
 class ComplexWIRE(INRLayer):
@@ -331,7 +338,6 @@ class ComplexWIRE(INRLayer):
         cw_key, subkey = jax.random.split(subkey)
         cb_key, subkey = jax.random.split(subkey)
 
-
         weight = jax.random.uniform(
             key=w_key,
             shape=(out_size, in_size),
@@ -368,6 +374,131 @@ class ComplexWIRE(INRLayer):
         return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
+
+class ComplexWIRE2D(INRLayer):
+    """
+    2D-ComplexGaborWavelet INRLayer
+    :param weights: jax.Array containing the weights of the linear and orthogonal part
+                    Only Float in the first layer, otherwise, Complex64
+    :param biases: jax.Array containing the bias of the linear and orthogonal part
+    :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    """
+
+    allowed_keys = frozenset({'w0', 's0'})
+    allows_multiple_weights_and_biases = True
+
+    @classmethod
+    def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
+        """from_config create a layer from hyperparameters
+
+        :param in_size: size of the input
+        :param out_size: size of the output
+        :param num_splits: ignored, defaults to 1
+        :param key: key for random number generator (keyword only)
+        :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+
+        :raises: ValueError if any other activation_kwargs than 'w0' and 's0' are provided
+
+        :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+
+        fw_key, subkey = jax.random.split(key)
+        fb_key, subkey = jax.random.split(subkey)
+        sw_key, subkey = jax.random.split(subkey)
+        sb_key, subkey = jax.random.split(subkey)
+
+
+        w0 = activation_kwargs["w0"]
+
+        if is_first_layer:
+            lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+        else:
+            lim = jnp.sqrt(
+                6. / in_size) / w0  #
+        # Pytorch initialization
+
+        frequency_weight = jax.random.uniform(
+            key=fw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+
+        frequency_bias = jax.random.uniform(
+            key=fb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+
+        scale_weight = jax.random.uniform(
+            key=sw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+        scale_bias = jax.random.uniform(
+            key=sb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+
+
+        if not is_first_layer:
+            cfw_key, subkey = jax.random.split(key)
+            cfb_key, subkey = jax.random.split(subkey)
+            csw_key, subkey = jax.random.split(subkey)
+            csb_key, subkey = jax.random.split(subkey)
+
+
+            cfrequency_weight = jax.random.uniform(
+                key=cfw_key,
+                shape=(out_size, in_size),
+                minval=-lim,
+                maxval=lim,
+            )
+
+            cfrequency_bias = jax.random.uniform(
+                key=cfb_key,
+                shape=(out_size,),
+                minval=-1,
+                maxval=1,
+            )
+
+            cscale_weight = jax.random.uniform(
+                key=csw_key,
+                shape=(out_size, in_size),
+                minval=-lim,
+                maxval=lim,
+            )
+            cscale_bias = jax.random.uniform(
+                key=csb_key,
+                shape=(out_size,),
+                minval=-1,
+                maxval=1,
+            )
+
+            frequency_weight = jax.lax.complex(frequency_weight, cfrequency_weight)
+            frequency_bias = jax.lax.complex(frequency_bias, cfrequency_bias)
+
+            scale_weight = jax.lax.complex(scale_weight, cscale_weight)
+            scale_bias = jax.lax.complex(scale_bias, cscale_bias)
+
+        weights = [frequency_weight, scale_weight]
+        biases = [frequency_bias, scale_bias]
+
+        return cls(weights, biases, **activation_kwargs)
+
+    @staticmethod
+    def _activation_function(*x, w0, s0):
+        return act.two_d_complex_gabor_wavelet(x, s0=s0, w0=w0)
+
+
+
+
 class Linear(INRLayer):
     """
     Linear INRLayer
@@ -380,7 +511,8 @@ class Linear(INRLayer):
     allows_multiple_weights_and_biases = False
 
     @classmethod
-    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -398,14 +530,14 @@ class Linear(INRLayer):
         activation_kwargs = cls._check_keys(activation_kwargs)
         w_key, b_key = jax.random.split(key)
 
-        lim = 1./jnp.sqrt(in_size)
+        lim = 1. / jnp.sqrt(in_size)
         weight = jax.random.uniform(
             key=w_key,
             shape=(out_size, in_size),
             minval=-lim,
             maxval=lim
-            )
-            
+        )
+
         bias = jax.random.uniform(
             key=b_key,
             shape=(out_size,),
@@ -418,6 +550,7 @@ class Linear(INRLayer):
     @staticmethod
     def _activation_function(x):
         return x
+
 
 class GaussianINRLayer(INRLayer):
     """
@@ -438,7 +571,8 @@ class GaussianINRLayer(INRLayer):
     allows_multiple_weights_and_biases = True
 
     @classmethod
-    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -457,18 +591,18 @@ class GaussianINRLayer(INRLayer):
         # here we'll use Glorot/Xavier uniform
         activation_kwargs = cls._check_keys(activation_kwargs)
         key_gen = key_generator(key)
-        lim = jnp.sqrt(6/(in_size+out_size))
+        lim = jnp.sqrt(6 / (in_size + out_size))
         weights = jax.random.uniform(
             key=next(key_gen),
             shape=(out_size, in_size),
             minval=-lim,
             maxval=lim
-            )
-        
+        )
+
         biases = jax.random.uniform(
             key=next(key_gen),
             shape=(out_size,),
             minval=-1,
             maxval=1
-            )
+        )
         return cls(weights, biases, **activation_kwargs)
