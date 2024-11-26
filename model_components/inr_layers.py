@@ -189,10 +189,11 @@ class SirenLayer(INRLayer):
         w_key, b_key = jax.random.split(key)
 
         if is_first_layer:
-            lim = 1./in_size# from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+            lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
         else:
-            lim = jnp.sqrt(6./in_size)/w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
-        
+            lim = jnp.sqrt(
+                6. / in_size) / w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
+
         weight = jax.random.uniform(
             key=w_key,
             shape=(out_size, in_size),
@@ -316,6 +317,13 @@ class ComplexGaborWavelet(INRLayer):
         :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
+        w0 = activation_kwargs['w0']
+
+        if is_first_layer:
+            lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+        else:
+            lim = jnp.sqrt(
+                6. / in_size) / w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
 
         w_key, subkey = jax.random.split(key)
         b_key, subkey = jax.random.split(subkey)
@@ -346,7 +354,7 @@ class ComplexGaborWavelet(INRLayer):
 
 
         # Pytorch initialization
-        lim = 1/jnp.sqrt(in_size)
+        # lim = 1/jnp.sqrt(2*in_size)
 
 
         weight = jax.random.uniform(

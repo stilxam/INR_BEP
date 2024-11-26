@@ -34,10 +34,9 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
         keyword only
     :return: a `jax.Array` with a shape determined by broadcasting all elements of x to tha same shape
     """
-    radial_part = unscaled_gaussian_bump(*x, inverse_scale=s0)
-    rotational_part = jnp.sin(w0*x[0])
-    return rotational_part*radial_part
-
+    omega = w0*x[0]
+    scale = s0*x[1]
+    return jnp.cos(omega)*jnp.exp(-jnp.square(scale))
 
 
 
