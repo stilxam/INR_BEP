@@ -40,6 +40,20 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
 
 
 
+
+def rWIRE(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Array]):
+    fWeights = x[0][0]
+    fBias = x[1][0]
+    sWeights = x[0][1]
+    sBias = x[1][1]
+    # TODO: How to handle multiple weights and biases? this is also needed for 2D wire
+
+    return
+
+
+
+
+
 def WIRE(x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Array]):
     """
     Implements the WIRE activation function

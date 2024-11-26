@@ -216,6 +216,77 @@ class SirenLayer(INRLayer):
         return jnp.sin(w0*x)
 
 
+class RealGaborWavelet(INRLayer):
+    """
+    RealGaborWavelet INRLayer
+    :param weights: jax.Array containing the weights of the linear part
+    :param biases: jax.Array containing the bias of the linear part
+    :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    """
+    allowed_keys = frozenset({'w0', 's0'})
+    allows_multiple_weights_and_biases = True
+
+    @classmethod
+    def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
+        """from_config create a layer from hyperparameters
+
+        :param in_size: size of the input
+        :param out_size: size of the output
+        :param num_splits: ignored, defaults to 1
+        :param key: key for random number generator (keyword only)
+        :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+
+        :raises: ValueError if any other activation_kwargs than 'w0' and 's0' are provided
+
+        :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+
+        fw_key, subkey = jax.random.split(key)
+        fb_key, subkey = jax.random.split(subkey)
+        sw_key, subkey = jax.random.split(subkey)
+        sb_key, subkey = jax.random.split(subkey)
+
+        # Pytorch initialization
+        lim = 1/jnp.sqrt(in_size)
+
+
+        frequency_weight = jax.random.uniform(
+            key=fw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+
+        frequency_bias = jax.random.uniform(
+            key=fb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+
+        scale_weight = jax.random.uniform(
+            key=sw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+        scale_bias = jax.random.uniform(
+            key=sb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+
+        weights = [frequency_weight, scale_weight]
+        biases = [frequency_bias, scale_bias]
+        return cls(weights, biases, **activation_kwargs)
+
+    @staticmethod
+    def _activation_function(x, w0, s0):
+        return act.real_wire(x, s0, w0)
+
 
 
 
@@ -224,8 +295,8 @@ class ComplexGaborWavelet(INRLayer):
     ComplexGaborWavelet INRLayer
     :param weights: jax.Array containing the weights of the linear part
     :param biases: jax.Array containing the bias of the linear part
-    :param w0: w0 hyperparameter as introduced in the SIREN paper by Sitzmann et al.
-    :param s0: s0 hyperparameter as introduced in the WIRE paper by Ramasinghe and Lucey
+    :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
     """
     allowed_keys = frozenset({'w0', 's0'})
     allows_multiple_weights_and_biases = False
@@ -239,20 +310,18 @@ class ComplexGaborWavelet(INRLayer):
         :param num_splits: ignored, defaults to 1
         :param key: key for random number generator (keyword only)
         :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
-        :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
 
-        :raises: ValueError if any other activation_kwargs than 'w0' are provided
+        :raises: ValueError if any other activation_kwargs than 'w0' and 's0' are provided
 
         :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
 
-
-
         w_key, subkey = jax.random.split(key)
         b_key, subkey = jax.random.split(subkey)
         cw_key, subkey = jax.random.split(subkey)
         cb_key, subkey = jax.random.split(subkey)
+
 
 
         #
@@ -315,9 +384,6 @@ class ComplexGaborWavelet(INRLayer):
 
     @staticmethod
     def _activation_function(x, w0, s0):
-        # omega = w0*x
-        # scale = s0*x
-        # return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j*omega)
         return act.WIRE(x, s0, w0)
 
 
