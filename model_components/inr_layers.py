@@ -217,11 +217,11 @@ class SirenLayer(INRLayer):
         return jnp.sin(w0*x)
 
 
-class RealGaborWavelet(INRLayer):
+class RealWIRE(INRLayer):
     """
     RealGaborWavelet INRLayer
-    :param weights: jax.Array containing the weights of the linear part
-    :param biases: jax.Array containing the bias of the linear part
+    :param weights: jax.Array containing the weights of the frequency and scale components
+    :param biases: jax.Array containing the bias of the frequency and scale components
     :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
     :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
     """
@@ -252,7 +252,6 @@ class RealGaborWavelet(INRLayer):
         # Pytorch initialization
         lim = 1/jnp.sqrt(in_size)
 
-
         frequency_weight = jax.random.uniform(
             key=fw_key,
             shape=(out_size, in_size),
@@ -282,19 +281,21 @@ class RealGaborWavelet(INRLayer):
 
         weights = [frequency_weight, scale_weight]
         biases = [frequency_bias, scale_bias]
+
         return cls(weights, biases, **activation_kwargs)
 
     @staticmethod
     def _activation_function(*x, w0, s0):
-        return act.real_wire(*x, s0=s0, w0=w0)
+        return act.real_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
 
 
-class ComplexGaborWavelet(INRLayer):
+class ComplexWIRE(INRLayer):
     """
     ComplexGaborWavelet INRLayer
     :param weights: jax.Array containing the weights of the linear part
+                    Only Float in the first layer, otherwise, Complex64
     :param biases: jax.Array containing the bias of the linear part
     :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
     :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
@@ -331,32 +332,6 @@ class ComplexGaborWavelet(INRLayer):
         cb_key, subkey = jax.random.split(subkey)
 
 
-
-        #
-        # weight = jax.random.normal(
-        #     key=w_key,
-        #     shape=(out_size, in_size),
-        # )
-        # bias = jax.random.normal(
-        #     key=b_key,
-        #     shape=(out_size,),
-        # )
-        # cw = jax.random.normal(
-        #     key=cw_key,
-        #     shape=(out_size, in_size),
-        # )
-        #
-        #
-        # cb = jax.random.normal(
-        #     key=cb_key,
-        #     shape=(out_size,),
-        # )
-
-
-        # Pytorch initialization
-        # lim = 1/jnp.sqrt(2*in_size)
-
-
         weight = jax.random.uniform(
             key=w_key,
             shape=(out_size, in_size),
@@ -386,13 +361,11 @@ class ComplexGaborWavelet(INRLayer):
             weight = jax.lax.complex(weight, cw)
             bias = jax.lax.complex(bias, cb)
 
-
-
         return cls(weight, bias, **activation_kwargs)
 
     @staticmethod
     def _activation_function(*x, w0, s0):
-        return act.WIRE(*x, s0=s0, w0=w0)
+        return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
 class Linear(INRLayer):
