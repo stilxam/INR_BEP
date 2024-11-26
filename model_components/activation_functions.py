@@ -38,10 +38,12 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
     rotational_part = jnp.sin(w0*x[0])
     return rotational_part*radial_part
 
-def complex_wire(x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Array]):
+
+
+def WIRE(x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Array]):
     """
-    Implements a complex version of WIRE
-    that is exp(j*w0*x)*exp(-|s0*x'|^2)
+    Implements the WIRE activation function
+    that is sin(w0*x[0])*exp(-\sum_{x' in x}|inverse_scale*x'|^2)
     from https://arxiv.org/pdf/2301.05187
 
     :parameter x: a bunch of `jax.Array`s to be fed to this activation function
@@ -52,14 +54,7 @@ def complex_wire(x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.A
         keyword only
     :return: a `jax.Array` with a shape determined by broadcasting all elements of x to tha same shape
     """
-    radial_part = jnp.exp(
-        -jnp.square(
-            jnp.abs(
-                s0 * x
-            )
-        )
-    )
-    rotational_part = jnp.exp(1j * w0 * x)
+    omega = w0*x
+    scale = s0*x
+    return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j*omega)
 
-
-    return rotational_part*radial_part

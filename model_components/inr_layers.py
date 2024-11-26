@@ -216,20 +216,12 @@ class SirenLayer(INRLayer):
         return jnp.sin(w0*x)
 
 
-class RealWire(SirenLayer):
-    allowed_keys = frozenset({'w0', 's0'})
-    allows_multiple_weights_and_biases = True
-
-    @staticmethod
-    def _activation_function(x, w0, s0):
-        return act.real_wire(x, s0=s0, w0=w0)
-    
-    # TODO write new from_config function that allows for WIRE 2D/3D etc.
 
 
-class ComplexWire(SirenLayer):
+
+class ComplexGaborWavelet(INRLayer):
     """
-    ComplexWire INRLayer
+    ComplexGaborWavelet INRLayer
     :param weights: jax.Array containing the weights of the linear part
     :param biases: jax.Array containing the bias of the linear part
     :param w0: w0 hyperparameter as introduced in the SIREN paper by Sitzmann et al.
@@ -238,10 +230,95 @@ class ComplexWire(SirenLayer):
     allowed_keys = frozenset({'w0', 's0'})
     allows_multiple_weights_and_biases = False
 
+    @classmethod
+    def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
+        """from_config create a layer from hyperparameters
+
+        :param in_size: size of the input
+        :param out_size: size of the output
+        :param num_splits: ignored, defaults to 1
+        :param key: key for random number generator (keyword only)
+        :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+        :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
+
+        :raises: ValueError if any other activation_kwargs than 'w0' are provided
+
+        :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+
+
+
+        w_key, subkey = jax.random.split(key)
+        b_key, subkey = jax.random.split(subkey)
+        cw_key, subkey = jax.random.split(subkey)
+        cb_key, subkey = jax.random.split(subkey)
+
+
+        #
+        # weight = jax.random.normal(
+        #     key=w_key,
+        #     shape=(out_size, in_size),
+        # )
+        # bias = jax.random.normal(
+        #     key=b_key,
+        #     shape=(out_size,),
+        # )
+        # cw = jax.random.normal(
+        #     key=cw_key,
+        #     shape=(out_size, in_size),
+        # )
+        #
+        #
+        # cb = jax.random.normal(
+        #     key=cb_key,
+        #     shape=(out_size,),
+        # )
+
+
+        # Pytorch initialization
+        lim = 1/jnp.sqrt(in_size)
+
+
+        weight = jax.random.uniform(
+            key=w_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+
+        bias = jax.random.uniform(
+            key=b_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+        cw = jax.random.uniform(
+            key=cw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+        cb = jax.random.uniform(
+            key=cb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+        if not is_first_layer:
+            weight = jax.lax.complex(weight, cw)
+            bias = jax.lax.complex(bias, cb)
+
+
+
+        return cls(weight, bias, **activation_kwargs)
+
     @staticmethod
     def _activation_function(x, w0, s0):
-        return act.complex_wire(x, s0=s0, w0=w0)
-
+        # omega = w0*x
+        # scale = s0*x
+        # return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j*omega)
+        return act.WIRE(x, s0, w0)
 
 
 class Linear(INRLayer):
