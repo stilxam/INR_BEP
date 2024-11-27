@@ -52,7 +52,6 @@ class MLPINR(eqx.nn.Sequential, INRModule):
         initialization_scheme:Optional[Callable]=None,
         initialization_scheme_kwargs:Optional[dict]=None,
         positional_encoding_layer:Optional[PositionalEncodingLayer]=None,
-        use_complex:bool=False,
         num_splits=1,
         post_processor:Optional[Callable]=None,
         ):
@@ -70,7 +69,6 @@ class MLPINR(eqx.nn.Sequential, INRModule):
         :param initialization_scheme_kwargs: (optional) dict of kwargs to be passed to the initializaiton scheme (using functools.partial)
             NB only used if initialization_scheme is provided
         :param positional_encoding_layer: (optional) PositionalEncodingLayer instance to be used as the first layer
-        :param use_complex: whether to use complex numbers in the weights and biases of the layers
         :param num_splits: number of weights matrices (and bias vectors) to be used by the layers that support that.
         :param post_processor: callable to be used on the output (by default: real_part, which takes the real part of a possibly complex array)
         :return: an MLPINR object according to specification
@@ -78,16 +76,9 @@ class MLPINR(eqx.nn.Sequential, INRModule):
         key_gen = key_generator(key=key)
         initialization_scheme_kwargs = initialization_scheme_kwargs or {}
         if initialization_scheme is None:
-            initialization_scheme = layer_type.complex_from_config if use_complex else layer_type.from_config
+            initialization_scheme = layer_type.from_config
         else:
             initialization_scheme = partial(initialization_scheme, layer_type=layer_type, **initialization_scheme_kwargs)
-
-        if use_complex:
-            def from_config(l_type: type[INRLayer], *args, **kwargs):
-                return l_type.complex_from_config(*args, **kwargs)
-        else:
-            def from_config(l_type: type[INRLayer], *args, **kwargs):
-                return l_type.from_config(*args, **kwargs)
 
         if positional_encoding_layer is not None:
             first_layer = positional_encoding_layer
@@ -123,8 +114,7 @@ class MLPINR(eqx.nn.Sequential, INRModule):
                     is_first_layer=False, 
                     **activation_kwargs
                     ))
-            out_layer = from_config(
-                Linear,
+            out_layer = Linear.from_config(
                 in_size=hidden_size,
                 out_size=out_size,
                 num_splits=1,
@@ -132,8 +122,7 @@ class MLPINR(eqx.nn.Sequential, INRModule):
                 is_first_layer=False
             )
         else:
-            out_layer = from_config(
-                Linear,
+            out_layer = Linear.from_config(
                 in_size=hidden_size,
                 out_size=out_size,
                 num_splits=1,

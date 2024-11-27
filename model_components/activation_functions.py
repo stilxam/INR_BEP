@@ -74,7 +74,22 @@ def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[f
     # Radial part: Gaussian envelope
     squared_norm = sum(jnp.square(jnp.abs(component)) for component in x)
     gaussian_envelope = jnp.exp(-jnp.square(s0)*squared_norm)
-    return freq*gaussian_envelope
+    return freq * gaussian_envelope
+
+
+# def two_d_complex_gabor_wavelet(*x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):  # same results as complex_gabor_wavelet for 2d
+#     """
+#     Implements the 2D WIRE activation function as per the github code
+#     that is \sigma(x) = exp(j w_0 x[0])* exp(-s_0^2 * (|x[0|^2 + |x[1]|^2))
+#     from https://github.com/vishwa91/wire/blob/main/modules/wire2d.py
+#     :parameter x: 2 `jax.Array`s to be fed to this activation function
+#     :parameter s0: inverse scale used in the radial part of the wavelet (s_0 in the paper)
+#     :parameter w0: w0 parameter used in the rotational art of the wavelet (\omega_0 in the paper)
+#     """
+#     freq = jnp.exp(1j*w0*x[0])
+#     arg = jnp.square(jnp.abs(x[0])) + jnp.square(jnp.abs(x[1]))
+#     gaus = jnp.exp(-jnp.square(s0)*arg)
+#     return freq * gaus
 
 def finer_activation(x, w0):
     """
