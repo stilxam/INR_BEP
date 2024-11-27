@@ -7,6 +7,7 @@ you can either use a from_config method when available, or provide INRLayer inst
 from typing import Callable, Optional, Union
 from functools import partial, wraps
 import warnings
+import abc
 
 import jax
 import equinox as eqx

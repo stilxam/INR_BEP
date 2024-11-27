@@ -636,7 +636,7 @@ class ComplexWIRE2D(INRLayer):
 
     @staticmethod
     def _activation_function(*x, w0, s0):
-        return act.two_d_complex_gabor_wavelet(x, s0=s0, w0=w0)
+        return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
 class Linear(INRLayer):
