@@ -70,6 +70,10 @@ def make_inr_train_step_function(target_function:Callable, loss_function:Callabl
         """
         locations = sampler(key)
         loss, grad = eqx.filter_value_and_grad(evaluate_loss)(inr, locations)
+        grad = jax.tree.map(
+            lambda x: jnp.conjugate(x) if jnp.iscomplexobj(x) else x,
+            grad
+        )
         updates, optimizer_state = optimizer.update(grad, optimizer_state, inr)
         inr = eqx.apply_updates(inr, updates)
         return inr, optimizer_state, loss
