@@ -61,10 +61,10 @@ def complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: Union[f
     return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j * omega)
 
 
-def any_d_complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
+def multidimensional_complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
     """
     Implements the WIRE activation function as per the paper
-    y_m = ψ(W(1)_m y_{m-1} + b(1)_m; w0, s0) * exp(-sum_{k=2}^D |s0 * (W(k)_m y_{m-1} + b(k)_m)|^2)
+    y_m = \psi(W^1_m y_{m-1} + b^1_m) exp(-\sum_{i=2}^{m} |s_0 (W^i_m y_{m-1} + b^i_m)|^2)
 
     This represents a custom activation function where:
     - ψ is a wavelet function with parameters w0 and s0.
@@ -72,11 +72,16 @@ def any_d_complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: U
     - y_{m-1} is the input from the previous layer.
     - The first term is the wavelet function applied to the linear transformation of the input.
     - The second term is an exponential decay based on the sum of squared scaled linear transformations of the input.
+
+    in this case, the matrix multiplication has already been done, so we only need to apply the non-linearity.
+    this yields the following activation function:
+    y_m = \psi(h[1]) exp(-\sum_{i=2}^{m} |s_0 (h[i])|^2)
     """
-    freq = jnp.exp(1j*w0*x[0])
-    arg = jnp.sum(jnp.square(jnp.abs(x)), axis=0)
-    gaus = jnp.exp(-jnp.square(s0)*arg)
-    return freq*gaus
+    gab = complex_gabor_wavelet(x[0], s0=s0, w0=w0)
+    for i in range(1, len(x)):
+        content = jnp.square(jnp.abs(s0 * x[i]))
+        gab = gab * jnp.exp(-content)
+    return gab
 
 
 def two_d_complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):

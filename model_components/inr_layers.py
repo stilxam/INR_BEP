@@ -374,6 +374,129 @@ class ComplexWIRE(INRLayer):
         return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
+class MultiDimensionalComplexWIRE(INRLayer):
+    """
+    ND-ComplexGaborWavelet INRLayer
+    :param weights: jax.Array containing the weights of the linear and orthogonal part
+                    Only Float in the first layer, otherwise, Complex64
+    :param biases: jax.Array containing the bias of the linear and orthogonal part
+    :param w0: frequency hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    :param s0: spread hyperparameter as introduced in the WIRE paper by Vishwanath et al.
+    """
+
+    allowed_keys = frozenset({'w0', 's0'})
+    allows_multiple_weights_and_biases = True
+
+    @classmethod
+    def from_config(cls, in_size, out_size, num_splits=2, *, key, is_first_layer, **activation_kwargs):
+        """from_config create a layer from hyperparameters
+
+        :param in_size: size of the input
+        :param out_size: size of the output
+        :param num_splits: number of orthogonal components to the linear part
+        :param key: key for random number generator (keyword only)
+        :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+
+        :raises: ValueError if any other activation_kwargs than 'w0' and 's0' are provided
+
+        :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+        """
+        activation_kwargs = cls._check_keys(activation_kwargs)
+
+        fw_key, subkey = jax.random.split(key)
+        fb_key, subkey = jax.random.split(subkey)
+
+        w0 = activation_kwargs["w0"]
+
+        if is_first_layer:
+            lim = 1. / (in_size * jnp.sqrt(
+                num_splits))  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+        else:
+            lim = jnp.sqrt(
+                6. / in_size) / w0 / jnp.sqrt(2 * num_splits)  #
+        # Pytorch initialization
+
+        frequency_weight = jax.random.uniform(
+            key=fw_key,
+            shape=(out_size, in_size),
+            minval=-lim,
+            maxval=lim,
+        )
+
+        frequency_bias = jax.random.uniform(
+            key=fb_key,
+            shape=(out_size,),
+            minval=-1,
+            maxval=1,
+        )
+        orthogonals_w = []
+        orthogonals_b = []
+
+        for i in range(num_splits):
+
+            sw_key, subkey = jax.random.split(subkey)
+            sb_key, subkey = jax.random.split(subkey)
+            scale_weight = jax.random.uniform(
+                key=sw_key,
+                shape=(out_size, in_size),
+                minval=-lim,
+                maxval=lim,
+            )
+            scale_bias = jax.random.uniform(
+                key=sb_key,
+                shape=(out_size,),
+                minval=-1,
+                maxval=1,
+            )
+            if not is_first_layer:
+                csw_key, subkey = jax.random.split(subkey)
+                csb_key, subkey = jax.random.split(subkey)
+                cscale_weight = jax.random.uniform(
+                    key=csw_key,
+                    shape=(out_size, in_size),
+                    minval=-lim,
+                    maxval=lim,
+                )
+                cscale_bias = jax.random.uniform(
+                    key=csb_key,
+                    shape=(out_size,),
+                    minval=-1,
+                    maxval=1,
+                )
+                scale_weight = jax.lax.complex(scale_weight, cscale_weight)
+                scale_bias = jax.lax.complex(scale_bias, cscale_bias)
+            orthogonals_w.append(scale_weight)
+            orthogonals_b.append(scale_bias)
+
+        if not is_first_layer:
+            cfw_key, subkey = jax.random.split(key)
+            cfb_key, subkey = jax.random.split(subkey)
+
+            cfrequency_weight = jax.random.uniform(
+                key=cfw_key,
+                shape=(out_size, in_size),
+                minval=-lim,
+                maxval=lim,
+            )
+
+            cfrequency_bias = jax.random.uniform(
+                key=cfb_key,
+                shape=(out_size,),
+                minval=-1,
+                maxval=1,
+            )
+
+            frequency_weight = jax.lax.complex(frequency_weight, cfrequency_weight)
+            frequency_bias = jax.lax.complex(frequency_bias, cfrequency_bias)
+
+        weights = [frequency_weight] + orthogonals_w
+        biases = [frequency_bias] + orthogonals_b
+        return cls(weights, biases, **activation_kwargs)
+
+    @staticmethod
+    def _activation_function(*x, w0, s0):
+        return act.multidimensional_complex_gabor_wavelet(x, s0=s0, w0=w0)
+
 
 class ComplexWIRE2D(INRLayer):
     """
@@ -408,7 +531,6 @@ class ComplexWIRE2D(INRLayer):
         fb_key, subkey = jax.random.split(subkey)
         sw_key, subkey = jax.random.split(subkey)
         sb_key, subkey = jax.random.split(subkey)
-
 
         w0 = activation_kwargs["w0"]
 
@@ -446,13 +568,11 @@ class ComplexWIRE2D(INRLayer):
             maxval=1,
         )
 
-
         if not is_first_layer:
-            cfw_key, subkey = jax.random.split(key)
+            cfw_key, subkey = jax.random.split(subkey)
             cfb_key, subkey = jax.random.split(subkey)
             csw_key, subkey = jax.random.split(subkey)
             csb_key, subkey = jax.random.split(subkey)
-
 
             cfrequency_weight = jax.random.uniform(
                 key=cfw_key,
@@ -495,8 +615,6 @@ class ComplexWIRE2D(INRLayer):
     @staticmethod
     def _activation_function(*x, w0, s0):
         return act.two_d_complex_gabor_wavelet(x, s0=s0, w0=w0)
-
-
 
 
 class Linear(INRLayer):
