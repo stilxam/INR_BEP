@@ -11,14 +11,14 @@ def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]
     e^(sum_{x' in x}-|inverse_scale*x'|^2)
 
     :param x: sequence of arrays for which to calculate the gaussian bump
-    :returns: the product of the gaussian bumps (computed as a sum in log-space)
+    :returns: the product of the gaussian bumps (computed as a mean in log-space)
     """
     x = jnp.stack(x, axis=0)
     if jnp.isrealobj(x):
         scaled_x = inverse_scale * x
     else:
         scaled_x = jnp.abs(inverse_scale * x)
-    return jnp.exp(-jnp.sum(jnp.square(scaled_x), axis=0))
+    return jnp.exp(-jnp.mean(jnp.square(scaled_x), axis=0))  # mean instead of sum so that we don't have to change the initialization scheme
 
 
 def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
@@ -72,8 +72,9 @@ def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[f
     # Frequency modulation ( w0 applies only to the first coordinate)
     freq = jnp.exp(1j * w0 * x[0])
     # Radial part: Gaussian envelope
-    squared_norm = sum(jnp.square(jnp.abs(component)) for component in x)
-    gaussian_envelope = jnp.exp(-jnp.square(s0)*squared_norm)
+    x = jnp.stack(x, axis=0)
+    squared_abs = jnp.mean(jnp.square(jnp.abs(x)), axis=0)  # mean instead of sum so that we don't have to change the initialization scheme
+    gaussian_envelope = jnp.exp(-jnp.square(s0)*squared_abs)
     return freq * gaussian_envelope
 
 
