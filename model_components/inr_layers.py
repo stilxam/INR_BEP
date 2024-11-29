@@ -618,3 +618,44 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
         :returns: dimensionality of the embedding
         """
         return 2*self.embedding_matrix.shape[0]*in_size
+
+
+class IntegerLatticeEncoding(PositionalEncodingLayer):
+    # TODO Simon: we need to allow for a scheduler in the train step to increase alpha.
+    _is_learnable = False
+
+    def is_stateful(self):
+        return True
+    
+    def out_size(self, in_size:int)->int:
+        # TODO write the formula for this
+        return 0
+    
+    def __init__(self, embedding_matrix):
+        init_alpha = 0. 
+        self._alpha_state_index = eqx.nn.StateIndex(init_alpha)
+        super().__init__(embedding_matrix)
+
+    @classmethod
+    def from_config(cls, your_arguments_go_here):
+
+        # TODO create your embedding matrix here
+        embedding_matrix = jnp.zeros(420)
+        return cls(embedding_matrix)
+    
+    def weighted_embedding_matrix(self, state):
+        # masking function for high frequencies
+        current_alpha = state.get(self._alpha_state_index)  # this gets the current value of alpha
+        embedding_matrix = self.embedding_matrix
+        # TODO combine the two according to the paper
+        return embedding_matrix
+
+
+    def __call__(self, x:jax.Array, state: eqx.nn.State, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+        embedding_matrix = self.weighted_embedding_matrix(state)
+        # TODO write your call to create `encoding`
+        encoding = x
+
+
+        return encoding, state
+
