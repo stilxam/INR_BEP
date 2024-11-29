@@ -16,3 +16,4 @@ import inr_utils.images as images
 import inr_utils.metrics as metrics
 import inr_utils.callbacks as callbacks
 import inr_utils.training as training
+import inr_utils.misc as misc
