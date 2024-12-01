@@ -39,6 +39,38 @@ def load_image_as_array(path:str)->jax.Array:
         output = jnp.asarray(pil_image)
     return output
 
+def image_gradient_array(image: jax.Array)->tuple[jax.Array, jax.Array]:
+    """
+    Take the first derivative of an image saved as an array
+    :parameter image: a jax.Array with the contents an image
+    :return: two jax.Array's representing the gradient of the image along the x and y axes,
+        both with the shape of the original image
+    """
+    grad_x, grad_y = jnp.gradient(image, axis=(0, 1))
+    return grad_x, grad_y
+    
+def image_stack_grads(grad_x: jax.Array, grad_y: jax.Array)->jax.Array: 
+    """
+    stacking the gradients into a single array
+    :parameter grad_x: gradient along x-axis
+    :parameter grad_y: gradient along y-axis
+    :return: array with shape (h, w, c, 2), where h=height, w=width, and c=channels 
+        are the shape of the original image
+    """
+    return jnp.stack([grad_x, grad_y], axis=-1)
+
+def image_laplacian_array(image: jax.Array)->jax.Array:
+    """
+    Take the second derivative of an image saved as an array
+    :parameter image: a jax.Array with the contents an image
+    :return: a jax.Array representing the laplacian of the image, 
+        with the shape of the original image
+    """
+    grad_x, grad_y = image_gradient_array(image)
+    lap_x = jnp.gradient(grad_x, axis=0)  
+    lap_y = jnp.gradient(grad_y, axis=1)  
+    return lap_x + lap_y
+
 # =================================================================================
 # the following part of this module is for creating continuous (interpolated) functions from images
 

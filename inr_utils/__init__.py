@@ -13,6 +13,7 @@ training: module containing functions for training INRs
 import inr_utils.losses as losses
 import inr_utils.sampling as sampling
 import inr_utils.images as images
+import inr_utils.entropy as entropy
 import inr_utils.metrics as metrics
 import inr_utils.callbacks as callbacks
 import inr_utils.training as training

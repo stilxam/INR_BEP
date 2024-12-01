@@ -37,3 +37,14 @@ def real_wire(*x: jax.Array, s0:Union[float, jax.Array], w0:Union[float, jax.Arr
     radial_part = unscaled_gaussian_bump(*x, inverse_scale=s0)
     rotational_part = jnp.sin(w0*x[0])
     return rotational_part*radial_part
+
+def laplacian(x:jax.Array, a:float):
+    """
+    e^(-|x|/a)
+
+    :param x: jax.Array
+    :param a: float, for which values >1 make the function "flatter" and values <1 make it "sharper"
+    :returns: jax.Array with the same shape as the input, 
+        all values of x being transformed according to the formula above
+    """
+    return jnp.exp(-jnp.absolute(x)/a)

@@ -313,7 +313,7 @@ class GaussianINRLayer(INRLayer):
         """
         # according to the Beyond Periodicity paper by Ramasinghe and Lucey, 
         # this one should be rather robust to what initialization scheme is used.
-        # here we'll use Glorot/Xavier uniform
+        # here we'll use Glorot/Xavier uni3form
         activation_kwargs = cls._check_keys(activation_kwargs)
         key_gen = key_generator(key)
         lim = jnp.sqrt(6/(in_size+out_size))
@@ -331,3 +331,10 @@ class GaussianINRLayer(INRLayer):
             maxval=1
             )
         return cls(weights, biases, **activation_kwargs)
+
+class LaplacianLayer(GaussianINRLayer):
+    """
+    """
+    _activation_function = staticmethod(act.laplacian)
+    allowed_keys = frozenset({'a'})
+    allows_multiple_weights_and_biases = False
