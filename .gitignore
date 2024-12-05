@@ -3,7 +3,7 @@ example_data/MNIST
 zut.ipynb
 wandb
 *.out
-/requirements.txt
+#/requirements.txt
 .idea
 /example_data/kirby.png
 !/flax_exp/results/
