@@ -64,3 +64,55 @@ def siren_scheme(in_size:int, out_size:int,  w0:float,  num_splits=1,*, layer_ty
     bias = bias_factor * bias
 
     return cls(weight, bias, **activation_kwargs)
+
+
+
+def finer_scheme(in_size: int, out_size: int, w0: float, k: float, num_splits=1, *, layer_type: type[INRLayer], key: jax.Array, is_first_layer: bool, **additional_layer_kwargs):
+    """
+    Initialization scheme for FINER layers using variable-periodic activation functions.
+
+    :param in_size: Size of the input to the layer.
+    :param out_size: Size of the output of the layer.
+    :param omega: Frequency scaling parameter for variable-periodic activations.
+    :param k: Range for bias initialization; biases are sampled from U(-k, k).
+    :param num_splits: Number of weight matrices and bias vectors (ignored here).
+    :param layer_type: Type of INRLayer to initialize.
+    :param key: PRNG key for randomness.
+    :param is_first_layer: Indicates whether this is the first layer in the network.
+    :param additional_layer_kwargs: Additional arguments for the INRLayer.
+
+    :return: An instance of layer_type initialized with FINER++ scheme.
+    """
+    cls = layer_type
+    activation_kwargs = dict(additional_layer_kwargs) if additional_layer_kwargs else {}
+    activation_kwargs["w0"] = w0  
+    activation_kwargs = cls._check_keys(activation_kwargs)
+
+    
+    w_key, b_key = jax.random.split(key)
+
+    # Weight initialization using SIREN-like scheme, adapted for FINER++
+    if is_first_layer:
+        weight_lim = 1.0 / in_size
+    else:
+        weight_lim = jnp.sqrt(6.0 / in_size) / w0
+
+    weights = jax.random.uniform(
+        key=w_key,
+        shape=(out_size, in_size),
+        minval=-weight_lim,
+        maxval=weight_lim
+    )
+
+    # Bias initialization with a larger range to support variable periodicity
+    biases = jax.random.uniform(
+        key=b_key,
+        shape=(out_size,),
+        minval=-k,
+        maxval=k
+    )
+
+    return cls(weights, biases, **activation_kwargs)
+
+
+
