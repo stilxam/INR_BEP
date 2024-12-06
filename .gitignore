@@ -9,3 +9,4 @@ wandb
 !/flax_exp/results/
 /flax_exp/
 example_data/*.ply
+example_data/*.xyz
