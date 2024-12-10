@@ -176,7 +176,7 @@ class MLPINR(INRModule):
         """
         key_gen = key_generator(key=key)
         initialization_scheme_kwargs = initialization_scheme_kwargs or {}
-        if initialization_scheme is None:
+        if initialization_scheme is None:  #TODO this should also get initialization_scheme_kwargs
             initialization_scheme = layer_type.complex_from_config if use_complex else layer_type.from_config
         else:
             initialization_scheme = partial(initialization_scheme, layer_type=layer_type, **initialization_scheme_kwargs)
