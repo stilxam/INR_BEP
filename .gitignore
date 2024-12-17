@@ -8,3 +8,5 @@ wandb
 /example_data/kirby.png
 !/flax_exp/results/
 /flax_exp/
+
+/example_data/*
