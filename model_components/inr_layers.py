@@ -637,11 +637,29 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
         super().__init__(embedding_matrix)
 
     @classmethod
-    def from_config(cls, your_arguments_go_here):
+    def from_config(cls, N, dim_input):
 
         # TODO create your embedding matrix here
-        embedding_matrix = jnp.zeros(420)
-        return cls(embedding_matrix)
+
+        grid_ranges = [jnp.arange(-N, N + 1) for _ in range(dim_input)]
+        
+        grid_mesh = jnp.meshgrid(*grid_ranges, indexing='ij')
+        
+        B = jnp.stack([g.flatten() for g in grid_mesh], axis=-1)
+
+        mask = jnp.max(jnp.abs(B), axis=1) <= N
+        
+        B = B[mask]
+
+        zero_prefix_mask = jnp.cumprod(B == 0, axis=1, dtype=jnp.int32)
+
+        negative_after_zero_prefix = (zero_prefix_mask[:, :-1] == 1) & (B[:, 1:] < 0)
+        
+        mask_H = ~jnp.any(negative_after_zero_prefix, axis=1)
+
+        B = B[mask_H]
+
+        return cls(B)
     
     def weighted_embedding_matrix(self, state):
         # masking function for high frequencies
