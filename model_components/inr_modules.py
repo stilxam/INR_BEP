@@ -29,7 +29,10 @@ def _deprecated(obj=None, new_name=None):
 
 
 class INRModule(eqx.Module):
-    pass
+    
+    @abc.abstractmethod
+    def is_stateful(self)->bool:
+        pass
 
 
 class MLPINR(eqx.nn.Sequential, INRModule):
@@ -150,5 +153,24 @@ class CombinedINR(INRModule):
         self.terms = terms
         self.post_processor = post_processor
 
-    def __call__(self, x):
-        return self.post_processor(sum(term(x) for term in self.terms))
+    def is_stateful(self):
+        return any(term.is_stateful() for term in self.terms)
+
+    def __call__(self, x, state:Optional[eqx.nn.State]=None):
+        is_stateful = self.is_stateful()
+
+        if not is_stateful:
+            return self.post_processor(sum(term(x) for term in self.terms))
+        elif state is None:
+            return self.post_processor(sum(term(x) for term in self.terms)), None
+        
+        out = 0
+        for term in self.terms:
+            if term.is_stateful():
+                substate = state.substate(term)
+                result, substate = term(x, substate)
+                state = state.update(substate)
+            else:
+                result = term(x)
+            out += result
+        return self.post_processor(out), state
