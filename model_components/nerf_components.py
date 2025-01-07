@@ -1,11 +1,8 @@
 # get nerf data
 # !wget http://cseweb.ucsd.edu/~viscomp/projects/LF/papers/ECCV20/nerf/tiny_nerf_data.npz
-import threading
-
 import jax
 import jax.numpy as jnp
 from typing import Sequence, Callable, Tuple, Union, Generator, Dict
-import flax.linen as nn
 
 
 def _generate_rays(height, width, focal, pose) -> jnp.ndarray:
@@ -141,62 +138,16 @@ def _volume_render(model_fn, rays, config: Dict, key_gen=None) -> Tuple[
     return rgb_map, depth_map, disparity_map, opacity
 
 
-class NeRF(nn.Module):
-    features: Sequence[int]
-    activation: Callable = nn.relu
-    final_layer_sigmoid: bool = False
-    config: dict = {
-        "near": 2.0,
-        "far": 6.0,
-        "num_samples": 64,
-        "batch_size": 128,
-        "epsilon": 1e-10,
-        "dim_positional_encoding": 512
-    }
-    apply_pe: bool = False
-
-    @nn.compact
-    def __call__(self, input_points):
-        x = self.positional_encoding(input_points) if self.apply_pe else input_points
-
-        for i, width in enumerate(self.features):
-            # Fully-connected layer + activation
-            h = nn.Dense(
-                width,
-            )(x)
-            h = self.activation(h)
-            # Skip connection
-            x = jnp.concatenate([h, input_points], axis=-1) if i == len(self.features) - 1 else x
-
-        # Output consists of 4 values: (r, g, b, sigma)
-        x = nn.Dense(4, )(x)
-
-        return x
-
-    def positional_encoding(self, x):
-        """
-        Positional encoding
-        """
-        batch_size, _ = x.shape
-
-        input_freq = jax.vmap(
-            lambda h: x * 2 ** h
-        )(jnp.arange(self.config["dim_positional_encoding"]) // 2)
-
-        periodic_encoding = jnp.stack(
-            [jnp.sin(input_freq), jnp.cos(input_freq)],
-            axis=-1
-        ).swapaxes(
-            0, 2
-        ).reshape(
-            (self.config["batch_size"], -1)
-        )
-        return jnp.concatenate([x, periodic_encoding], axis=-1)
-
-
-def ray_to_ndc(origins, directions, focal, w, h, near=1.):
+def ray_to_ndc(origins, directions, focal, w, h, near=1.) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Convert rays to normalized device coordinates
+    :param origins: ray origins
+    :param directions: ray directions
+    :param focal: focal length
+    :param w: width of the image
+    :param h: height of the image
+    :param near: near plane
+    :return: ray origins and ray directions in normalized device coordinates
     """
     # Shift ray origins to near plane
     t = -(near + origins[Ellipsis, 2]) / directions[Ellipsis, 2]
@@ -217,6 +168,3 @@ def ray_to_ndc(origins, directions, focal, w, h, near=1.):
     origins = jnp.stack([o0, o1, o2], -1)
     directions = jnp.stack([d0, d1, d2], -1)
     return origins, directions
-
-
-

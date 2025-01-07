@@ -9,7 +9,6 @@ from jaxtyping import PyTree  # really just Any
 
 import equinox as eqx
 
-
 LossEvaluator = Union[Callable[[eqx.Module, PyTree, Optional[eqx.nn.State]], jax.Array], eqx.Module]
 LossEvaluator.__doc__ = """
 A LossEvaluator is a function that should take
@@ -18,10 +17,12 @@ A LossEvaluator is a function that should take
 it should have *scalar* output.
 """
 
+
 def mse_loss(pred_val: jax.Array, true_val: jax.Array):
     return jnp.mean(jnp.sum(jnp.square(pred_val - true_val), axis=-1))
 
-def scaled_mse_loss(pred_val:jax.Array, true_val:jax.Array, eps=1e-6):  
+
+def scaled_mse_loss(pred_val: jax.Array, true_val: jax.Array, eps=1e-6):
     """ 
     A scaled version of the mse loss, where the loss on each batch gets scaled 
     so that 1 means you correctly predict the mean of the true values over that batch
@@ -33,7 +34,19 @@ def scaled_mse_loss(pred_val:jax.Array, true_val:jax.Array, eps=1e-6):
     mse = mse_loss(pred_val, true_val)
     mean_true_val = true_val.mean(axis=0, keepdims=True)
     scaling = mse_loss(mean_true_val, true_val)
-    return mse/(scaling + eps)
+    return mse / (scaling + eps)
+
+
+def psnr_loss(pred_val: jax.Array, true_val: jax.Array, max_val=1.):
+    """
+    Peak Signal-to-Noise Ratio loss
+    :param pred_val: the predicted values
+    :param true_val: the true values
+    :param max_val: the maximum value of the input data
+    """
+    mse = mse_loss(pred_val, true_val)
+    return 20 * jnp.log10(max_val) - 10 * jnp.log10(mse)
+
 
 
 # ==========================================================================
@@ -58,7 +71,7 @@ class PointWiseLossEvaluator(eqx.Module):
     loss_function: Callable
     state_update_function: Optional[Callable] = None
 
-    def __call__(self, inr: eqx.Module, locations: jax.Array, state:Optional[eqx.nn.State]=None):
+    def __call__(self, inr: eqx.Module, locations: jax.Array, state: Optional[eqx.nn.State] = None):
         if state is not None:
             pred_val, _ = jax.vmap(inr, (0, None))(locations, state)
         else:
@@ -78,12 +91,12 @@ class PointWiseGradLossEvaluator(eqx.Module):
     state_update_function: Optional[Callable]
 
     def __init__(
-            self, 
-            target_function:Callable, 
-            loss_function:Callable, 
-            take_grad_of_target_function:bool, 
-            state_update_function:Optional[Callable]=None
-            ):
+            self,
+            target_function: Callable,
+            loss_function: Callable,
+            take_grad_of_target_function: bool,
+            state_update_function: Optional[Callable] = None
+    ):
         """ 
         evaluates *the gradient of* an inr and a target function on a batch of input coordinates
         and computes the loss between the results of those two.
@@ -108,7 +121,7 @@ class PointWiseGradLossEvaluator(eqx.Module):
             self.target_function = target_function
         self.state_update_function = state_update_function
 
-    def __call__(self, inr:eqx.Module, locations: jax.Array, state:Optional[eqx.nn.State]=None):
+    def __call__(self, inr: eqx.Module, locations: jax.Array, state: Optional[eqx.nn.State] = None):
         if state is not None:
             inr_grad = eqx.filter_grad(inr, has_aux=True)
             pred_val, _ = jax.vmap(inr_grad, (0, None))(locations, state)
