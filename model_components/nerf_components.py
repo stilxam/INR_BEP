@@ -1,5 +1,7 @@
 # get nerf data
 # !wget http://cseweb.ucsd.edu/~viscomp/projects/LF/papers/ECCV20/nerf/tiny_nerf_data.npz
+import threading
+
 import jax
 import jax.numpy as jnp
 from typing import Sequence, Callable, Tuple, Union, Generator, Dict
@@ -110,7 +112,8 @@ def _weights(opacity, dists, config: Dict) -> jnp.ndarray:
     return weights
 
 
-def _volume_render(model_fn, rays, config: Dict, key_gen=None) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def _volume_render(model_fn, rays, config: Dict, key_gen=None) -> Tuple[
+    jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Volume rendering
     :param model_fn: model function
@@ -189,6 +192,31 @@ class NeRF(nn.Module):
             (self.config["batch_size"], -1)
         )
         return jnp.concatenate([x, periodic_encoding], axis=-1)
+
+
+def ray_to_ndc(origins, directions, focal, w, h, near=1.):
+    """
+    Convert rays to normalized device coordinates
+    """
+    # Shift ray origins to near plane
+    t = -(near + origins[Ellipsis, 2]) / directions[Ellipsis, 2]
+    origins = origins + t[Ellipsis, None] * directions
+
+    dx, dy, dz = tuple(jnp.moveaxis(directions, -1, 0))
+    ox, oy, oz = tuple(jnp.moveaxis(origins, -1, 0))
+
+    # Projection
+    o0 = -((2 * focal) / w) * (ox / oz)
+    o1 = -((2 * focal) / h) * (oy / oz)
+    o2 = 1 + 2 * near / oz
+
+    d0 = -((2 * focal) / w) * (dx / dz - ox / oz)
+    d1 = -((2 * focal) / h) * (dy / dz - oy / oz)
+    d2 = -2 * near / oz
+
+    origins = jnp.stack([o0, o1, o2], -1)
+    directions = jnp.stack([d0, d1, d2], -1)
+    return origins, directions
 
 
 
