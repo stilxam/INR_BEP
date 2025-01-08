@@ -9,3 +9,4 @@ wandb
 !/flax_exp/results/
 /flax_exp/
 /example_data/
+/results/plots/

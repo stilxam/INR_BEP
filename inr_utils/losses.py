@@ -135,3 +135,8 @@ class PointWiseGradLossEvaluator(eqx.Module):
             state = self.state_update_function(state, inr)
 
         return self.loss_function(pred_val, true_val), state
+
+
+
+# TODO: Write NERF loss evaluator
+#

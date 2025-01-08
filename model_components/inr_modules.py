@@ -174,3 +174,11 @@ class CombinedINR(INRModule):
                 result = term(x)
             out += result
         return self.post_processor(out), state
+
+
+class NeRFComponent(INRModule):
+    pass
+
+class NeRFModel(INRModule):
+    coarse_model: NeRFComponent
+    fine_model: NeRFComponent
