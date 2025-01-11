@@ -191,10 +191,8 @@ class NeRFComponent(INRModule, ABC):
     num_sigma_channels: int
     to_sigma: INRLayer
 
-
     @classmethod
     def from_config(cls,
-                    in_size: int,
                     hidden_size: int,
                     condition_size: int,
                     num_splits: int,
@@ -206,11 +204,14 @@ class NeRFComponent(INRModule, ABC):
                     positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
                     num_layers: int = 8,
                     condition_depth: int = 4,
+                    skip_layer: int = 4,
+                    in_size: int = 3,
+                    in_condition_size: int = 2,
                     out_size: int = 4,
                     post_processor: Optional[Callable] = None,
                     ):
         """
-        :param in_size: input size of network
+        :param in_size: input size of network xyz (3)
         :param hidden_size: hidden size of network
         :param condition_size: size of the condition
         :param num_splits: number of weights matrices (and bias vectors) to be used by the layers that support that.
@@ -225,7 +226,9 @@ class NeRFComponent(INRModule, ABC):
         :param num_layers: number of layers
             NB this is including the input layer (which is possibly an encoding layer) and the output layer
         :param condition_depth: depth of the condition
-        :param out_size: output size of network
+        :param skip_layer: number of layers to skip
+        :param in_condition_size: input size of network view dir (2)
+        :param out_size: output size of network before to_rgb and to_sigma
         :param post_processor: callable to be used on the output (by default: real_part, which takes the real part of a possibly complex array)
         """
 
@@ -252,6 +255,7 @@ class NeRFComponent(INRModule, ABC):
             first_hidden_size = hidden_size
 
         cls.layers = [first_layer]
+        cls.skip_layer = skip_layer
 
         out_in_size = hidden_size + in_size if num_layers % cls.skip_layer else hidden_size
 
@@ -296,24 +300,15 @@ class NeRFComponent(INRModule, ABC):
                         **activation_kwargs
                     ))
 
-
         if post_processor is not None:
             if isinstance(post_processor, eqx.Module):
                 cls.layers.append(post_processor)
             else:
                 cls.layers.append(eqx.nn.Lambda(post_processor))
 
-        cls.to_sigma = Linear.from_config(
-            in_size=hidden_size,
-            out_size=cls.num_sigma_channels,
-            num_splits=1,
-            key=next(key_gen),
-            is_first_layer=False
-        )
-
         cls.bottleneck = Linear.from_config(
-            in_size=out_size,
-            out_size=hidden_size,
+            in_size=hidden_size,
+            out_size=in_size,
             num_splits=num_splits,
             key=next(key_gen),
             is_first_layer=False
@@ -321,7 +316,7 @@ class NeRFComponent(INRModule, ABC):
         cls.condition_layers = []
         if condition_depth > 1:
             cls.condition_layers.append(Linear.from_config(
-                in_size=hidden_size,
+                in_size=in_size + in_condition_size,
                 out_size=condition_size,
                 num_splits=num_splits,
                 key=next(key_gen),
@@ -347,7 +342,7 @@ class NeRFComponent(INRModule, ABC):
             ))
         elif condition_depth == 1:
             cls.condition_layers.append(Linear.from_config(
-                in_size=hidden_size,
+                in_size=in_size + in_condition_size,
                 out_size=hidden_size,
                 num_splits=num_splits,
                 key=next(key_gen),
@@ -362,7 +357,6 @@ class NeRFComponent(INRModule, ABC):
             else:
                 cls.condition_layers.append(eqx.nn.Lambda(post_processor))
 
-
         cls.to_rgb = Linear.from_config(
             in_size=hidden_size,
             out_size=cls.num_rgb_channels,
@@ -371,14 +365,26 @@ class NeRFComponent(INRModule, ABC):
             is_first_layer=False
         )
 
+        cls.to_sigma = Linear.from_config(
+            in_size=hidden_size,
+            out_size=cls.num_sigma_channels,
+            num_splits=1,
+            key=next(key_gen),
+            is_first_layer=False
+        )
+
         return cls
 
     def __call__(self, x, condition):
+        """
+        :param x: jnp.ndarray, input xyz
+        :param condition: jnp.ndarray, input viewing angle
+        """
         inputs = x
 
         for i, layer in enumerate(self.layers):
             x = layer(x)
-            x = self.net_activation(x)
+            # x = self.net_activation(x)
             if i % self.skip_layer == 0 and i != 0:
                 x = jnp.concatenate([x, inputs], axis=-1)
 
@@ -390,25 +396,30 @@ class NeRFComponent(INRModule, ABC):
             x = jnp.concatenate([btl, condition], axis=-1)
             for layer in self.condition_layers:
                 x = layer(x)
-                x = self.net_activation(x)
+                # x = self.net_activation(x)
 
         raw_rgb = self.to_rgb(x).reshape((-1, inputs.shape[1], self.num_rgb_channels))
         return raw_rgb, raw_sigma
 
 
 class NeRFModel(INRModule):
+    """
+    A NeRF model that is composed of two NeRFComponents, one for the coarse nerf and one for the fine nerf.
+    implementations strongly inspired by Google Research's JAX NeRF implementation
+    https://github.com/google-research/google-research/blob/master/jaxnerf/nerf/models.py
+
+    """
+    coarse_mlp: type[NeRFComponent]
+    fine_mlp: type[NeRFComponent]
+    condition: Union[bool, None]
+
     num_coarse_samples: int  # The number of samples for the coarse nerf.
     num_fine_samples: int  # The number of samples for the fine nerf.
     use_viewdirs: bool  # If True, use viewdirs as an input.
     near: float  # The distance to the near plane
     far: float  # The distance to the far plane
     noise_std: float  # The std dev of noise added to raw sigma.
-    net_depth: int  # The depth of the first part of MLP.
-    net_width: int  # The width of the first part of MLP.
-    net_depth_condition: int  # The depth of the second part of MLP.
-    net_width_condition: int  # The width of the second part of MLP.
-    net_activation: Callable[..., Any]  # MLP activation
-    skip_layer: int  # How often to add skip connections.
+
     num_rgb_channels: int  # The number of RGB channels.
     num_sigma_channels: int  # The number of density channels.
     white_bkgd: bool  # If True, use a white background.
@@ -418,10 +429,9 @@ class NeRFModel(INRModule):
     lindisp: bool  # If True, sample linearly in disparity rather than in depth.
     legacy_posenc_order: bool  # Keep the same ordering as the original tf code.
 
-    activation_kwargs: Callable
-    rgb_activation_kwargs: Callable
-    sigma_activation_kwargs: Callable
+    # activation_kwargs: Callable # i don't think we need to have it in this class as it is passed to the nerfcomponents
 
+    # net_activation: Callable[..., Any]  # MLP activation
     rgb_activation: Callable = jax.nn.sigmoid
     sigma_activation: Callable = jax.nn.relu
     key: jax.Array
@@ -437,7 +447,7 @@ class NeRFModel(INRModule):
                     hidden_size: int,
                     net_depth: int,
                     condition_size: int,
-                    net_depth_condition: int,
+                    net_depth_condition: Optional[int],
                     layer_type: type[INRLayer],
                     skip_layer: int,
                     num_rgb_channels: int,
@@ -447,22 +457,51 @@ class NeRFModel(INRModule):
                     max_deg_point: int,
                     deg_view: int,
                     lindisp: bool,
-                    legacy_posenc_order: bool,
 
                     rgb_activation: Callable[..., Any],
                     sigma_activation: Callable[..., Any],
 
                     activation_kwargs: dict,
-                    net_activation_kwargs: dict,
-                    rgb_activation_kwargs: dict,
-                    sigma_activation_kwargs: dict,
-
                     key: jax.Array,
                     initialization_scheme: Optional[Callable] = None,
                     initialization_scheme_kwargs: Optional[dict] = None,
                     positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
                     post_processor: Optional[Callable] = None,
                     ):
+        """
+        :param num_coarse_samples: int, the number of samples for the coarse nerf.
+        :param num_fine_samples: int, the number of samples for the fine nerf.
+        :param use_viewdirs: bool, if True, use viewdirs as an input.
+        :param near: float, the distance to the near plane
+        :param far: float, the distance to the far plane
+        :param noise_std: float, the std dev of noise added to raw sigma.
+        :param hidden_size: int, hidden size of network
+        :param net_depth: int, number of layers
+            NB this is including the input layer (which is possibly an encoding layer) and the output layer
+        :param condition_size: int, size of the condition
+        :param net_depth_condition: int, depth of the condition
+        :param layer_type: type of the layers that is to be used
+        :param skip_layer: int, number of layers to skip
+        :param num_rgb_channels: int, the number of RGB channels.
+        :param num_sigma_channels: int, the number of density channels.
+        :param white_bkgd: bool, if True, use a white background.
+        :param min_deg_point: int, the minimum degree of positional encoding for positions.
+        :param max_deg_point: int, the maximum degree of positional encoding for positions.
+        :param deg_view: int, the degree of positional encoding for viewdirs.
+        :param lindisp: bool, if True, sample linearly in disparity rather than in depth.
+        :param legacy_posenc_order: bool, keep the same ordering as the original tf code.
+        :param rgb_activation: Callable[..., Any], activation function for rgb
+        :param sigma_activation: Callable[..., Any], activation function for sigma
+        :param activation_kwargs: dict, activation_kwargs to be passed to the layers
+        :param key: jax.Array, key for random number generation
+        :param initialization_scheme: (optional) callable that initializes layers
+            it's call signature should be compatible with that of INRLayer.from_config (when the layer_type is set using functools.partial)
+        :param initialization_scheme_kwargs: (optional) dict of kwargs to be passed to the initializaiton scheme (using functools.partial)
+            NB only used if initialization_scheme is provided
+        :param positional_encoding_layer: (optional) PositionalEncodingLayer instance to be used as the first layer
+        :param post_processor: (optional) callable to be used on the output (by default: real_part, which takes the real part of a possibly complex array)
+        :return: a NeRFModel object according to specification
+        """
 
         x = jnp.exp(jnp.linspace(-90, 90, 1024))
         x = jnp.concatenate([-x[::-1], x], 0)
@@ -471,6 +510,11 @@ class NeRFModel(INRModule):
 
         sigma = sigma_activation(x)
         assert jnp.all(sigma >= 0), "sigma_activation does not produce non-negative outputs"
+
+        if net_depth_condition is None:
+            cls.condition = None
+        else:
+            cls.condition = True
 
         key_gen = key_generator(key=key)
 
@@ -484,6 +528,7 @@ class NeRFModel(INRModule):
             condition_size=condition_size,
             num_layers=net_depth,
             condition_depth=net_depth_condition,
+            skip_layer=skip_layer,
             layer_type=layer_type,
             activation_kwargs=activation_kwargs,
             key=next(key_gen),
@@ -502,6 +547,7 @@ class NeRFModel(INRModule):
             condition_size=condition_size,
             num_layers=net_depth,
             condition_depth=net_depth_condition,
+            skip_layer=skip_layer,
             layer_type=layer_type,
             activation_kwargs=activation_kwargs,
             key=next(key_gen),
@@ -512,7 +558,21 @@ class NeRFModel(INRModule):
             post_processor=post_processor,
         )
 
+        cls.num_coarse_samples = num_coarse_samples
+        cls.num_fine_samples = num_fine_samples
+        cls.use_viewdirs = use_viewdirs
+        cls.near = near
+        cls.far = far
+        cls.noise_std = noise_std
+        cls.num_rgb_channels = num_rgb_channels
+        cls.num_sigma_channels = num_sigma_channels
+        cls.white_bkgd = white_bkgd
+        cls.min_deg_point = min_deg_point
+        cls.max_deg_point = max_deg_point
+        cls.deg_view = deg_view
+        cls.lindisp = lindisp
 
+        return cls
 
     def __call__(self, rays, randomized: bool = False):
         # Stratified sampling along rays
@@ -528,29 +588,37 @@ class NeRFModel(INRModule):
             randomized,
             self.lindisp,
         )
-        samples_enc = self.posenc(
-            samples,
-            self.min_deg_point,
-            self.max_deg_point,
-            self.legacy_posenc_order,
-        )
-
-
-
-
-
+        # samples_enc = self.posenc(
+        #     samples,
+        #     self.min_deg_point,
+        #     self.max_deg_point,
+        #     self.legacy_posenc_order,
+        # )
 
         # Point attribute predictions
+        # if self.use_viewdirs:
+        #     viewdirs_enc = self.posenc(
+        #         rays.viewdirs,
+        #         0,
+        #         self.deg_view,
+        #         self.legacy_posenc_order,
+        #     )
+        #     raw_rgb, raw_sigma = self.coarse_mlp(samples_enc, viewdirs_enc)
+        # else:
+        #     raw_rgb, raw_sigma = self.coarse_mlp(samples_enc)
+
         if self.use_viewdirs:
-            viewdirs_enc = self.posenc(
-                rays.viewdirs,
-                0,
-                self.deg_view,
-                self.legacy_posenc_order,
-            )
-            raw_rgb, raw_sigma = self.coarse_mlp(samples_enc, viewdirs_enc)
+            input = jnp.concatenate([samples, rays.viewdirs], axis=-1)
         else:
-            raw_rgb, raw_sigma = self.coarse_mlp(samples_enc)
+            input = samples
+
+        if self.condition:
+            raw_rgb, raw_sigma = self.coarse_mlp(input, self.condition)
+        elif self.condition is None:
+            raw_rgb, raw_sigma = self.coarse_mlp(input, None)
+        else:
+            raise ValueError("condition must be either True or None")
+
         # Add noises to regularize the density predictions if needed
         raw_sigma = self.add_gaussian_noise(
             next(key_gen),
@@ -591,8 +659,6 @@ class NeRFModel(INRModule):
                 self.legacy_posenc_order,
             )
 
-
-
             if self.use_viewdirs:
                 raw_rgb, raw_sigma = self.fine_mlp(samples_enc, viewdirs_enc)
             else:
@@ -616,12 +682,29 @@ class NeRFModel(INRModule):
             ret.append((comp_rgb, disp, acc))
         return ret
 
-
     @staticmethod
     def cast_rays(z_vals, origins, directions):
+        """
+        Cast rays through pixel positions.
+        """
         return origins[Ellipsis, None, :] + z_vals[Ellipsis, None] * directions[Ellipsis, None, :]
 
     def sample_along_rays(self, key, origins, directions, num_samples, near, far, randomized, lindisp):
+        """
+        Sample along rays.
+
+        :param key: jnp.ndarray(float32), [2,], random number generator.
+        :param origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
+        :param directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
+        :param num_samples: int, the number of samples.
+        :param near: float, the distance to the near plane.
+        :param far: float, the distance to the far plane.
+        :param randomized: bool, use randomized samples.
+        :param lindisp: bool, sample linearly in disparity rather than in depth.
+
+        :return: z_vals: jnp.ndarray(float32), [batch_size, num_samples].
+        :return: coords: jnp.ndarray(float32), [batch_size, num_samples, 3].
+        """
         batch_size = origins.shape[0]
 
         t_vals = jnp.linspace(0., 1., num_samples)
@@ -643,67 +726,63 @@ class NeRFModel(INRModule):
         coords = self.cast_rays(z_vals, origins, directions)
         return z_vals, coords
 
-    def posenc(self, x, min_deg, max_deg, legacy_posenc_order=False):
-        """Cat x with a positional encoding of x with scales 2^[min_deg, max_deg-1].
+    #
+    # @staticmethod
+    # def posenc(x, min_deg, max_deg, legacy_posenc_order=False):
+    #     """
+    #     Cat x with a positional encoding of x with scales 2^[min_deg, max_deg-1].
+    #
+    #     Instead of computing [sin(x), cos(x)], we use the trig identity
+    #     cos(x) = sin(x + pi/2) and do one vectorized call to sin([x, x+pi/2]).
+    #
+    #     :param x: jnp.ndarray, variables to be encoded. Note that x should be in [-pi, pi].
+    #     :param min_deg: int, the minimum (inclusive) degree of the encoding.
+    #     :param max_deg: int, the maximum (exclusive) degree of the encoding.
+    #     :param legacy_posenc_order: bool, keep the same ordering as the original tf code.
+    #
+    #     :return: jnp.ndarray, encoded variables.
+    #     """
+    #     if min_deg == max_deg:
+    #         return x
+    #     scales = jnp.array([2 ** i for i in range(min_deg, max_deg)])
+    #     if legacy_posenc_order:
+    #         xb = x[Ellipsis, None, :] * scales[:, None]
+    #         four_feat = jnp.reshape(
+    #             jnp.sin(jnp.stack([xb, xb + 0.5 * jnp.pi], -2)),
+    #             list(x.shape[:-1]) + [-1])
+    #     else:
+    #         xb = jnp.reshape((x[Ellipsis, None, :] * scales[:, None]),
+    #                          list(x.shape[:-1]) + [-1])
+    #         four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
+    #     return jnp.concatenate([x] + [four_feat], axis=-1)
 
-        Instead of computing [sin(x), cos(x)], we use the trig identity
-        cos(x) = sin(x + pi/2) and do one vectorized call to sin([x, x+pi/2]).
-
-        Args:
-          x: jnp.ndarray, variables to be encoded. Note that x should be in [-pi, pi].
-          min_deg: int, the minimum (inclusive) degree of the encoding.
-          max_deg: int, the maximum (exclusive) degree of the encoding.
-          legacy_posenc_order: bool, keep the same ordering as the original tf code.
-
-        Returns:
-          encoded: jnp.ndarray, encoded variables.
-        """
-        if min_deg == max_deg:
-            return x
-        scales = jnp.array([2 ** i for i in range(min_deg, max_deg)])
-        if legacy_posenc_order:
-            xb = x[Ellipsis, None, :] * scales[:, None]
-            four_feat = jnp.reshape(
-                jnp.sin(jnp.stack([xb, xb + 0.5 * jnp.pi], -2)),
-                list(x.shape[:-1]) + [-1])
-        else:
-            xb = jnp.reshape((x[Ellipsis, None, :] * scales[:, None]),
-                             list(x.shape[:-1]) + [-1])
-            four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
-        return jnp.concatenate([x] + [four_feat], axis=-1)
-
-    def add_gaussian_noise(self, key, raw, noise_std, randomized):
+    @staticmethod
+    def add_gaussian_noise(key, raw, noise_std, randomized):
         """Adds gaussian noise to `raw`, which can used to regularize it.
 
-        Args:
-          key: jnp.ndarray(float32), [2,], random number generator.
-          raw: jnp.ndarray(float32), arbitrary shape.
-          noise_std: float, The standard deviation of the noise to be added.
-          randomized: bool, add noise if randomized is True.
+        :param key: jnp.ndarray(float32), [2,], random number generator.
+        :param raw: jnp.ndarray(float32), arbitrary shape.
+        :param noise_std: float, The standard deviation of the noise to be added.
+        :param randomized: bool, add noise if randomized is True.
 
-        Returns:
-          raw + noise: jnp.ndarray(float32), with the same shape as `raw`.
+        :return: raw + noise: jnp.ndarray(float32), with the same shape as `raw`.
         """
         if (noise_std is not None) and randomized:
             return raw + random.normal(key, raw.shape, dtype=raw.dtype) * noise_std
         else:
             return raw
 
-    def volumetric_rendering(self, rgb, sigma, z_vals, dirs, white_bkgd):
+    @staticmethod
+    def volumetric_rendering(rgb, sigma, z_vals, dirs, white_bkgd):
         """Volumetric Rendering Function.
 
-        Args:
-          rgb: jnp.ndarray(float32), color, [batch_size, num_samples, 3]
-          sigma: jnp.ndarray(float32), density, [batch_size, num_samples, 1].
-          z_vals: jnp.ndarray(float32), [batch_size, num_samples].
-          dirs: jnp.ndarray(float32), [batch_size, 3].
-          white_bkgd: bool.
+        :param rgb: jnp.ndarray(float32), color, [batch_size, num_samples, 3].
+        :param sigma: jnp.ndarray(float32), density, [batch_size, num_samples, 1].
+        :param z_vals: jnp.ndarray(float32), [batch_size, num_samples].
+        :param dirs: jnp.ndarray(float32), [batch_size, 3].
+        :param white_bkgd: bool.
 
-        Returns:
-          comp_rgb: jnp.ndarray(float32), [batch_size, 3].
-          disp: jnp.ndarray(float32), [batch_size].
-          acc: jnp.ndarray(float32), [batch_size].
-          weights: jnp.ndarray(float32), [batch_size, num_samples]
+        :return: comp_rgb: jnp.ndarray(float32), [batch_size, 3].
         """
         eps = 1e-10
         dists = jnp.concatenate([
@@ -732,18 +811,17 @@ class NeRFModel(INRModule):
             comp_rgb = comp_rgb + (1. - acc[Ellipsis, None])
         return comp_rgb, disp, acc, weights
 
-    def piecewise_constant_pdf(self, key, bins, weights, num_samples, randomized):
+    @staticmethod
+    def piecewise_constant_pdf(key, bins, weights, num_samples, randomized):
         """Piecewise-Constant PDF sampling.
 
-        Args:
-          key: jnp.ndarray(float32), [2,], random number generator.
-          bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
-          weights: jnp.ndarray(float32), [batch_size, num_bins].
-          num_samples: int, the number of samples.
-          randomized: bool, use randomized samples.
+        :param key: jnp.ndarray(float32), [2,], random number generator.
+        :param bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
+        :param weights: jnp.ndarray(float32), [batch_size, num_bins].
+        :param num_samples: int, the number of samples.
+        :param randomized: bool, use randomized samples.
 
-        Returns:
-          z_samples: jnp.ndarray(float32), [batch_size, num_samples].
+        :return: z_samples: jnp.ndarray(float32), [batch_size, num_samples].
         """
         # Pad each weight vector (only if necessary) to bring its sum to `eps`. This
         # avoids NaNs when the input is zeros or small, but has no effect otherwise.
@@ -792,6 +870,7 @@ class NeRFModel(INRModule):
         # Prevent gradient from backprop-ing through `samples`.
         return lax.stop_gradient(samples)
 
+    @staticmethod
     def sample_pdf(self, key, bins, weights, origins, directions, z_vals, num_samples,
                    randomized):
         """Hierarchical sampling.
@@ -818,13 +897,3 @@ class NeRFModel(INRModule):
         z_vals = jnp.sort(jnp.concatenate([z_vals, z_samples], axis=-1), axis=-1)
         coords = self.cast_rays(z_vals, origins, directions)
         return z_vals, coords
-
-def construct_NeRF(self, key, example_batch):
-    x = jnp.exp(jnp.linspace(-90, 90, 1024))
-    x = jnp.concatenate([-x[::-1], x], 0)
-    rgb = self.rgb_activation_kwargs(x)
-    assert jnp.all(rgb >= 0) and jnp.all(rgb <= 1), "rgb_activation does not produce outputs in [0, 1]"
-
-    sigma = self.sigma_activation_kwargs(x)
-    assert jnp.all(sigma >= 0), "sigma_activation does not produce non-negative outputs"
-

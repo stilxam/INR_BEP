@@ -136,7 +136,8 @@ class INRLayer(eqx.Module):
 
     @classmethod
     @abc.abstractmethod
-    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """
         Abstract classmethod
         This should initialize the weights and biases based on hyperparameters and a prng key.
@@ -152,7 +153,7 @@ class INRLayer(eqx.Module):
         """
         pass
 
-    def __call__(self, x:jax.Array, *, key:Optional[jax.Array]):
+    def __call__(self, x: jax.Array, *, key: Optional[jax.Array]):
         # key just to have it be compatible with eqx.nn.Sequential
         if isinstance(self.weights, (list, tuple)):
             # when num_splits > 1
@@ -191,15 +192,15 @@ class SirenLayer(INRLayer):
 
     @classmethod
     def from_config(
-        cls, 
-        in_size: int, 
-        out_size: int, 
-        num_splits: int = 1, 
-        *, 
-        key: jax.Array, 
-        is_first_layer: bool,
-        **activation_kwargs
-        ):
+            cls,
+            in_size: int,
+            out_size: int,
+            num_splits: int = 1,
+            *,
+            key: jax.Array,
+            is_first_layer: bool,
+            **activation_kwargs
+    ):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -334,7 +335,8 @@ class ComplexWIRE(INRLayer):
     _activation_function = staticmethod(act.complex_gabor_wavelet)
 
     @classmethod
-    def from_config(cls, in_size:int, out_size:int, num_splits:int=1, *, key:jax.Array, is_first_layer:bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -355,8 +357,8 @@ class ComplexWIRE(INRLayer):
         else:
             lim = jnp.sqrt(
                 6. / in_size
-                ) / w0
-        
+            ) / w0
+
         key_gen = key_generator(key)
 
         weights = []
@@ -393,7 +395,7 @@ class ComplexWIRE(INRLayer):
                 )
                 weight = jax.lax.complex(weight, c_weight)
                 bias = jax.lax.complex(bias, c_bias)
-            
+
             weights.append(weight)
             biases.append(bias)
         return cls(weights, biases, **activation_kwargs)
@@ -412,15 +414,15 @@ class Linear(INRLayer):
 
     @classmethod
     def from_config(
-        cls, 
-        in_size: int, 
-        out_size: int, 
-        num_splits: int = 1, 
-        *, 
-        key: jax.Array, 
-        is_first_layer: bool,
-        **activation_kwargs
-        ):
+            cls,
+            in_size: int,
+            out_size: int,
+            num_splits: int = 1,
+            *,
+            key: jax.Array,
+            is_first_layer: bool,
+            **activation_kwargs
+    ):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -525,9 +527,10 @@ class FinerLayer(INRLayer):
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
     _activation_function = staticmethod(act.finer_activation)
-    
+
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+                    **activation_kwargs):
         """
         Initialize FINER layer from hyperparameters
         :param in_size: size of the input
@@ -546,7 +549,7 @@ class FinerLayer(INRLayer):
         else:
             lim = jnp.sqrt(6.0 / in_size) / w0
         weights = jax.random.uniform(w_key, shape=(out_size, in_size), minval=-lim, maxval=lim)
-        
+
         # Bias initialization over a larger range to flexibly tune the frequency set
         k = 20  # As per the FINER paper
         biases = jax.random.uniform(b_key, shape=(out_size,), minval=-k, maxval=k)
@@ -573,9 +576,9 @@ class PositionalEncodingLayer(eqx.nn.StatefulLayer):
             return self._embedding_matrix
         else:
             return jax.lax.stop_gradient(self._embedding_matrix)
-        
+
     @abc.abstractmethod
-    def out_size(self, in_size:int)->int:
+    def out_size(self, in_size: int) -> int:
         """ 
         Return the number of output channels given the number of input channels
         :parameter in_size: dimensionality of the input
@@ -583,7 +586,7 @@ class PositionalEncodingLayer(eqx.nn.StatefulLayer):
         """
         pass
 
-    def is_stateful(self)->bool:
+    def is_stateful(self) -> bool:
         """ 
         Indicate whether the positional embedding is stateful or not.
         """
@@ -598,23 +601,25 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
     _is_learnable = False
 
     @classmethod
-    def from_config(cls, num_frequencies:int, frequency_scaling:float=2.):
+    def from_config(cls, num_frequencies: int, frequency_scaling: float = 2.):
         """ 
         :parameter num_frequencies: L in equation 4 of the NeRF paper.
             The output of this layer will be 2*num_frequencies*<number of input channels> dimensional
         """
         powers = jnp.arange(num_frequencies, dtype=jnp.int32)
-        embedding_matrix = jnp.pow(frequency_scaling, powers)*jnp.pi  # not really the embedding matrix, but we do just apply this to each coordinate as scalar (coordinate) vector (embedding_matrix) multiplication
+        embedding_matrix = jnp.pow(frequency_scaling,
+                                   powers) * jnp.pi  # not really the embedding matrix, but we do just apply this to each coordinate as scalar (coordinate) vector (embedding_matrix) multiplication
         return cls(embedding_matrix)
-    
-    def __call__(self, x, *, key:Optional[jax.Array]=None)->jax.Array:
-        frequencies = jax.vmap(lambda coordinate: coordinate*self.embedding_matrix)(x).flatten()
-        return jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(frequencies).flatten()
-    
+
+    def __call__(self, x, *, key: Optional[jax.Array] = None) -> jax.Array:
+        frequencies = jax.vmap(lambda coordinate: coordinate * self.embedding_matrix)(x).flatten()
+        return jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(
+            frequencies).flatten()
+
     def out_size(self, in_size):
         """ 
         Return the number of output channels given the number of input channels
         :parameter in_size: dimensionality of the input
         :returns: dimensionality of the embedding
         """
-        return 2*self.embedding_matrix.shape[0]*in_size
+        return 2 * self.embedding_matrix.shape[0] * in_size
