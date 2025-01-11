@@ -123,12 +123,83 @@ def plot_eigvals(Ks):
 
     fig.suptitle("Neural Tangent Kernels and Rescaled Eigenvalues")
 
-    plt.show()
     path = Path.cwd().joinpath("results", "plots")
     if not path.exists():
         path.mkdir(parents=True)
 
     plt.savefig(path.joinpath("ntk_eigvals.png"))
+
+    plt.show()
+
+
+def format_plot(x=None, y=None):
+    ax = plt.gca()
+    if x is not None:
+        plt.xlabel(x, fontsize=20)
+    if y is not None:
+        plt.ylabel(y, fontsize=20)
+
+
+def plot_fn(train, test, *fs):
+    train_xs, train_ys = train
+
+    plt.plot(train_xs, train_ys, 'ro', markersize=10, label='train')
+
+    if test != None:
+        test_xs, test_ys = test
+        plt.plot(test_xs, test_ys, 'k--', linewidth=3, label='$f(x)$')
+
+        for f in fs:
+            plt.plot(test_xs, f(test_xs), '-', linewidth=3)
+
+    plt.xlim([-jnp.pi, jnp.pi])
+    plt.ylim([-1.5, 1.5])
+
+    format_plot('$x$', '$f$')
+
+
+def fuck_around_nngp(n=10, in_channels=2):
+    setup = {
+        "layer_type":
+            "inr_layers.SirenLayer",
+        "activation_kwargs":
+            {"w0": 25},
+    }
+    config = get_config(setup["layer_type"], setup["activation_kwargs"])
+
+    xs = jnp.linspace(-jnp.pi, jnp.pi, num=100).reshape((-1,))
+    ys = jnp.sin(xs)
+
+    init_fn, apply_fn = make_init_apply(config)
+    params = init_fn()
+
+    kwargs = dict(
+        f=apply_fn,
+        diagonal_axes=(0,)
+    )
+
+    kernel_fn = nt.empirical_kernel_fn(apply_fn)
+    kernel_fn = jit(kernel_fn, static_argnames='get')
+    k_train_train = kernel_fn(xs, xs, params)
+
+    predict_fn = nt.predict.gradient_descent_mse(kernel_fn, xs, ys, diag_reg=1e-4)
+    nngp_mean, nngp_covariance = predict_fn(x_test=xs, get='nngp',
+                                            compute_cov=True)
+
+    nngp_mean = nngp_mean.reshape((-1,))
+    nngp_std = jnp.sqrt(jnp.diag(nngp_covariance))
+
+
+    plt.plot(xs, nngp_mean, "r-", linewidth=3)
+    plt.fill_between(
+        jnp.reshape(xs, (-1)),
+        nngp_mean - 2 * nngp_std,
+        nngp_mean + 2 * nngp_std,
+        color='red', alpha=0.2)
+
+    plt.xlim([-jnp.pi, jnp.pi])
+    plt.ylim([-1.5, 1.5])
+    plt.show()
 
 
 def main(n=10, in_channels=2, plot=True):
@@ -159,31 +230,10 @@ def main(n=10, in_channels=2, plot=True):
 
         ntjc, ntvp = get_nkt_fns(apply_fn)
 
-        NTK_jacobian_contraction = ntjc(flattened_locations, flattened_locations, params)
-        # NTK_vector_products = ntvp(flattened_locations, flattened_locations, params)
+        # NTK_jacobian_contraction = ntjc(flattened_locations, flattened_locations, params)
+        NTK_vector_products = ntvp(flattened_locations, flattened_locations, params)
 
-        Ks[f"{layer_type}_{activation_kwargs}"] = NTK_jacobian_contraction
-
-    # init_fn, apply_fn = make_init_apply(config)
-    # params = init_fn()
-    #
-    #
-    # ntjc, ntvp = get_nkt_fns(apply_fn)
-    #
-    # NTK_jacobian_contraction = ntjc(flattened_locations, flattened_locations, params)
-    # NTK_vector_products = ntvp(flattened_locations, flattened_locations, params)
-
-    # lin_fn = nt.linearize(apply_fn, params)
-    # lin_ntjc, lin_ntvp = get_nkt_fns(lin_fn)
-    # lin_NTK_jacobian_contraction = lin_ntjc(flattened_locations, flattened_locations, params)
-    # lin_NTK_vector_products = lin_ntvp(flattened_locations, flattened_locations, params)
-
-    # Ks = {
-    #     "NTKJC": NTK_jacobian_contraction,
-    #     "NTKVP": NTK_vector_products,
-    #     "lin_NTKJC": lin_NTK_jacobian_contraction,
-    #     "lin_NTKVP": lin_NTK_vector_products,
-    # }
+        Ks[f"{layer_type}_{activation_kwargs}"] = NTK_vector_products
 
     if plot:
         plot_eigvals(Ks)
