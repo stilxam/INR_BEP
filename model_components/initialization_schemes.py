@@ -119,16 +119,30 @@ def finer_scheme(in_size: int, out_size: int, w0: float, bias_k:float, num_split
 
 
 
-def scale_initialization_scheme(init_scheme: Callable, scale_factor: float) -> Callable:
+def scale_initialization_scheme(init_scheme: Callable, scale_factor: float, *args, **kwargs) -> Callable:
     """Creates a scaled version of an initialization scheme.
     
     :param init_scheme: The initialization scheme to scale
     :param scale_factor: Factor to scale the weights and biases by
-    :return: A new initialization scheme that scales the output of the original scheme
+    :param args: Positional arguments to pass to the initialization scheme
+    :param kwargs: Keyword arguments to pass to the initialization scheme
+    :return: A new initialization scheme that scales parameters based on the scheme type
     """
-    def scaled_scheme(*args, **kwargs):
-        layer = init_scheme(*args, **kwargs)
-        scaled_weights = layer.weights * scale_factor
-        scaled_biases = layer.biases * scale_factor
-        return layer.__class__(scaled_weights, scaled_biases, **layer.activation_kwargs)
-    return scaled_scheme 
+    # Get initialization scheme name from the function
+    scheme_name = init_scheme.__name__
+
+    # Scale parameters based on initialization scheme type
+    if scheme_name == "siren_scheme":
+        if 'w0' in kwargs:
+            kwargs['w0'] *= scale_factor
+    elif scheme_name == "finer_scheme":
+        if 'w0' in kwargs:
+            kwargs['w0'] *= scale_factor
+        if 'bias_k' in kwargs:
+            kwargs['bias_k'] *= scale_factor
+    elif scheme_name == "gaussian_scheme":
+        if 'inverse_scale' in kwargs:
+            kwargs['inverse_scale'] *= scale_factor
+
+    # Return scaled initialization
+    return init_scheme(*args, **kwargs)
