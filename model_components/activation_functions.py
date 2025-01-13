@@ -1,13 +1,15 @@
-""" 
+"""
 Module with activation functions for inr layers.
 """
 from typing import Union, Tuple
 import jax
 from jax import numpy as jnp
 
+from model_components.inr_layers import HOSCLayer
+
 
 def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]):
-    """ 
+    """
     e^(sum_{x' in x}-|inverse_scale*x'|^2)
 
     :param x: sequence of arrays for which to calculate the gaussian bump
@@ -22,7 +24,7 @@ def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]
 
 
 def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
-    """ 
+    """
     The WIRE paper (https://arxiv.org/pdf/2301.05187) states that the R->R version of the gabor wavelet is
     \sigma(x) = sin(w_0*x[0])*exp(-(s_0 *x[1])^2).
     However, their code (https://github.com/vishwa91/wire/blob/main/modules/wire.py),
@@ -61,7 +63,7 @@ def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Arra
 #     return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j * omega)
 
 def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[float, jax.Array])->jax.Array:
-    """ 
+    """
     Implements the n-dimensional WIRE activation function as per the 2D extension.
     :parameter x: one jax.Array per dimension
         should all have the same size
@@ -100,3 +102,17 @@ def finer_activation(x, w0):
     :return: output array after applying variable-periodic function
     """
     return jnp.sin((jnp.abs(x) + 1) * w0 * x)
+
+
+def hosc_activation(x: jax.Array, w0: float) -> jax.Array:
+    """
+    HOSC activation function: tanh(w0 * sin(x))
+    """
+    return jnp.tanh(w0 * jnp.sin(x))
+
+
+def ada_hosc_activation(x: jax.Array, w0: float) -> jax.Array:
+    """
+    Adaptive HOSC activation function: sin(x)(1-tanh^2(w0 * sin(x)))
+    """
+    return jnp.sin(x)*(1 - jnp.square(hosc_activation(x, w0)))

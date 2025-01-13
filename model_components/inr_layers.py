@@ -1,4 +1,4 @@
-""" 
+"""
 INRLayer classes for Implicit Neural Representations / Coordinate-MLPs / Neural Fields
 The main difference with normal MLP layers is that the __init__ method of these layers
 takes the weights, biases, and activation_kwargs as input, so as to make it easier to use them with hyper networks.
@@ -58,7 +58,7 @@ class INRLayer(eqx.Module):
 
     @classmethod
     def _check_weights_and_biases(cls, weights, biases):
-        """ 
+        """
         Check if the types of weights and biases agree with cls.allows_multiple_weights_and_biases
         and whether, if weights and biases are tuples/lists, they are of equal length.
         """
@@ -82,13 +82,13 @@ class INRLayer(eqx.Module):
                     f"When providing sequences of weights and biases, the sequences should be of equal length (got len(weights)={w_len} but len(biases)={b_len})")
 
     def activation_function(self, *args):
-        """ 
+        """
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
         return self._activation_function(*args, **self.activation_kwargs)
 
     def __init__(self, weights, biases, **activation_kwargs):
-        """ 
+        """
         Initialise an INRLayer from its weights, biases, and activation_kwargs
         """
         self._check_weights_and_biases(weights, biases)
@@ -98,7 +98,7 @@ class INRLayer(eqx.Module):
         self.activation_kwargs = activation_kwargs
 
     def __init_subclass__(cls):
-        """__init_subclass__ 
+        """__init_subclass__
         Modify the signature of cls.from_config based on cls.allowed_keys
         To enable the use of the tools from common_dl_utils, the signature of from_config is made to specify exactly what parameters need to be provided.
         """
@@ -180,7 +180,7 @@ class INRLayer(eqx.Module):
 
 class SirenLayer(INRLayer):
     """
-    Siren layer from "Implicit Neural Representations with Periodic Activation functions" by Sitzmann et al. 
+    Siren layer from "Implicit Neural Representations with Periodic Activation functions" by Sitzmann et al.
     :param weights: jax.Array containing the weights of the linear part
     :param biases: jax.Array containing the bias of the linear part
     :param w0: w0 hyperparameter as introduced in the SIREN paper by Sitzmann et al.
@@ -247,6 +247,226 @@ class SirenLayer(INRLayer):
     @staticmethod
     def _activation_function(x, w0):
         return jnp.sin(w0 * x)
+
+class SinCardLayer(SirenLayer):
+    """
+    Cardinal Sinusoid from A Sampling Theory Perspective on Activations for Implicit Neural Representations https://arxiv.org/pdf/2402.05427
+    #TODO: check what initialization is used in the paper, I initially couldn't find it so I just used siren.
+    :param weights: jax.Array containing the weights of the linear part
+    :param biases: jax.Array containing the bias of the linear part
+    :param w0: w0 hyperparameter as introduced in the SIREN paper by Sitzmann et al.
+
+    No other activation_kwargs than w0 are allowed
+    """
+    allowed_keys = frozenset({'w0'})
+    allows_multiple_weights_and_biases = False
+    @classmethod
+    def from_config(
+                  cls,
+                  in_size: int,
+                  out_size: int,
+                  num_splits: int = 1,
+                  *,
+                  key: jax.Array,
+                  is_first_layer: bool,
+                  **activation_kwargs
+          ):
+              """from_config create a layer from hyperparameters
+
+              :param in_size: size of the input
+              :param out_size: size of the output
+              :param num_splits: ignored, defaults to 1
+              :param key: key for random number generator (keyword only)
+              :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+              :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
+
+              :raises: ValueError if 'w0' is not provided
+
+              :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+              """
+              activation_kwargs = cls._check_keys(activation_kwargs)
+              w0 = activation_kwargs['w0']
+
+              w_key, b_key = jax.random.split(key)
+
+              if is_first_layer:
+                  lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+              else:
+                  lim = jnp.sqrt(
+                      6. / in_size) / w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
+
+              weight = jax.random.uniform(
+                  key=w_key,
+                  shape=(out_size, in_size),
+                  minval=-lim,
+                  maxval=lim
+              )
+
+              bias = jax.random.uniform(
+                  key=b_key,
+                  shape=(out_size,),
+                  minval=-1,
+                  maxval=1
+              )
+              bias_factor = jnp.pi / jnp.sqrt(
+                  jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
+              bias = bias_factor * bias
+
+              return cls(weight, bias, **activation_kwargs)
+
+
+    @staticmethod
+    def _activation_function(x, w0):
+        """
+        since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
+        i wrote a bunch of versions cuz i wasnt sure
+
+        """
+        # return jnp.sinc(w0 * x / jnp.pi)
+        # return jnp.where(x == 0, 1, jnp.sin(w0 * x) / x)
+        return jnp.sinc(w0 * x)
+
+
+class AdaHoscLayer(INRLayer):
+    """
+
+    """
+    allowed_keys = frozenset({'w0'})
+    allows_multiple_weights_and_biases = False
+    @classmethod
+    def from_config(
+               cls,
+               in_size: int,
+               out_size: int,
+               num_splits: int = 1,
+               *,
+               key: jax.Array,
+               is_first_layer: bool,
+               **activation_kwargs
+       ):
+           """from_config create a layer from hyperparameters
+
+           :param in_size: size of the input
+           :param out_size: size of the output
+           :param num_splits: ignored, defaults to 1
+           :param key: key for random number generator (keyword only)
+           :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+           :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
+
+           :raises: ValueError if 'w0' is not provided
+
+           :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+           """
+           activation_kwargs = cls._check_keys(activation_kwargs)
+           w0 = activation_kwargs['w0']
+
+           w_key, b_key = jax.random.split(key)
+
+           if is_first_layer:
+               lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+           else:
+               lim = jnp.sqrt(
+                   6. / in_size) / w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
+
+           weight = jax.random.uniform(
+               key=w_key,
+               shape=(out_size, in_size),
+               minval=-lim,
+               maxval=lim
+           )
+
+           bias = jax.random.uniform(
+               key=b_key,
+               shape=(out_size,),
+               minval=-1,
+               maxval=1
+           )
+           bias_factor = jnp.pi / jnp.sqrt(
+               jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
+           bias = bias_factor * bias
+
+           return cls(weight, bias, **activation_kwargs)
+
+
+    @staticmethod
+    def _activation_function(x, w0):
+        """
+        since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
+        i wrote a bunch of versions cuz i wasnt sure
+
+        """
+        return act.ada_hosc_activation(x, w0)
+
+
+class HoscLayer(INRLayer):
+    """
+
+    """
+    allowed_keys = frozenset({'w0'})
+    allows_multiple_weights_and_biases = False
+    @classmethod
+    def from_config(
+               cls,
+               in_size: int,
+               out_size: int,
+               num_splits: int = 1,
+               *,
+               key: jax.Array,
+               is_first_layer: bool,
+               **activation_kwargs
+       ):
+           """from_config create a layer from hyperparameters
+
+           :param in_size: size of the input
+           :param out_size: size of the output
+           :param num_splits: ignored, defaults to 1
+           :param key: key for random number generator (keyword only)
+           :param is_first_layer: whether this is the first layer in an INR or not (keyword only)
+           :param w0: value of the w0 hyper parameter from the SIREN paper (keyword only)
+
+           :raises: ValueError if 'w0' is not provided
+
+           :return: a SirenLayer with weights and biases initialized according to the scheme provided in the original SIREN paper
+           """
+           activation_kwargs = cls._check_keys(activation_kwargs)
+           w0 = activation_kwargs['w0']
+
+           w_key, b_key = jax.random.split(key)
+
+           if is_first_layer:
+               lim = 1. / in_size  # from https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L630
+           else:
+               lim = jnp.sqrt(
+                   6. / in_size) / w0  # from https://arxiv.org/pdf/2006.09661.pdf subsection.3.2 and appendix 1.5 and https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/modules.py#L627
+
+           weight = jax.random.uniform(
+               key=w_key,
+               shape=(out_size, in_size),
+               minval=-lim,
+               maxval=lim
+           )
+
+           bias = jax.random.uniform(
+               key=b_key,
+               shape=(out_size,),
+               minval=-1,
+               maxval=1
+           )
+           bias_factor = jnp.pi / jnp.sqrt(
+               jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
+           bias = bias_factor * bias
+
+           return cls(weight, bias, **activation_kwargs)
+
+
+    @staticmethod
+    def _activation_function(x, w0):
+        """
+        since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
+        i wrote a bunch of versions cuz i wasnt sure
+
+        """
+        return act.hosc_activation(x, w0)
 
 
 class RealWIRE(INRLayer):
@@ -434,7 +654,7 @@ class Linear(INRLayer):
         :raises: ValueError if any activation_kwargs are provided
 
         :return: a Linear layer with weights and biases initialized according a uniform distribution with bounds +/- 1/sqrt(in_size)
-        
+
         NB this INRLayer accepts no activationn_kwargs
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
@@ -473,7 +693,7 @@ class GaussianINRLayer(INRLayer):
         Alternatively, this can be a list or tuple of jax.Arrays of the same size containing multiple bias vectors
         This list or tuple should be the same length as the one for weights
     :param inverse_scale: float scale hyper parameter for $x\mapsto e^(-|inverse_scale\cdot x|^2)$
-    
+
     NB no other activation_kwargs than inverse_scale are allowed.
     """
     _activation_function = staticmethod(act.unscaled_gaussian_bump)
@@ -496,7 +716,7 @@ class GaussianINRLayer(INRLayer):
 
         :return: an INR layer with Gaussian activation function and with weights initialized according to the Glorot/Xavier uniform initialization scheme
         """
-        # according to the Beyond Periodicity paper by Ramasinghe and Lucey, 
+        # according to the Beyond Periodicity paper by Ramasinghe and Lucey,
         # this one should be rather robust to what initialization scheme is used.
         # here we'll use Glorot/Xavier uniform
         activation_kwargs = cls._check_keys(activation_kwargs)
@@ -557,8 +777,8 @@ class FinerLayer(INRLayer):
 
 
 class PositionalEncodingLayer(eqx.nn.StatefulLayer):
-    """ 
-    Base class for various kinds of positional encodings. 
+    """
+    Base class for various kinds of positional encodings.
     """
     _embedding_matrix: Union[jax.Array, Sequence[jax.Array]]
     _is_learnable: eqx.AbstractClassVar[bool]
@@ -568,7 +788,7 @@ class PositionalEncodingLayer(eqx.nn.StatefulLayer):
 
     @property
     def embedding_matrix(self):
-        """ 
+        """
         Get the embedding matrix of the PositionalEncodingLayer
         If not self._is_learnable, apply jax.lax.stop_gradient to prevent the matrix from being changed during training.
         """
@@ -579,7 +799,7 @@ class PositionalEncodingLayer(eqx.nn.StatefulLayer):
 
     @abc.abstractmethod
     def out_size(self, in_size: int) -> int:
-        """ 
+        """
         Return the number of output channels given the number of input channels
         :parameter in_size: dimensionality of the input
         :returns: dimensionality of the embedding
@@ -587,14 +807,14 @@ class PositionalEncodingLayer(eqx.nn.StatefulLayer):
         pass
 
     def is_stateful(self) -> bool:
-        """ 
+        """
         Indicate whether the positional embedding is stateful or not.
         """
         return False
 
 
 class ClassicalPositionalEncoding(PositionalEncodingLayer):
-    """ 
+    """
     The standard positional encoding used in NeRF (among other places).
     See https://arxiv.org/pdf/2003.08934v2 (NeRF paper) equation 4 (page 7)
     """
@@ -602,7 +822,7 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
 
     @classmethod
     def from_config(cls, num_frequencies: int, frequency_scaling: float = 2.):
-        """ 
+        """
         :parameter num_frequencies: L in equation 4 of the NeRF paper.
             The output of this layer will be 2*num_frequencies*<number of input channels> dimensional
         """
@@ -617,7 +837,7 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
             frequencies).flatten()
 
     def out_size(self, in_size):
-        """ 
+        """
         Return the number of output channels given the number of input channels
         :parameter in_size: dimensionality of the input
         :returns: dimensionality of the embedding
