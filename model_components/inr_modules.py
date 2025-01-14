@@ -306,24 +306,50 @@ class NeRFComponent(INRModule, ABC):
             else:
                 cls.layers.append(eqx.nn.Lambda(post_processor))
 
-        cls.bottleneck = Linear.from_config(
+        # cls.bottleneck = Linear.from_config(
+        #     in_size=hidden_size,
+        #     out_size=in_size,
+        #     num_splits=num_splits,
+        #     key=next(key_gen),
+        #     is_first_layer=False
+        # )
+        #
+        cls.bottleneck = initialization_scheme(
             in_size=hidden_size,
             out_size=in_size,
             num_splits=num_splits,
             key=next(key_gen),
-            is_first_layer=False
+            is_first_layer=False,
+            **activation_kwargs
         )
         cls.condition_layers = []
         if condition_depth > 1:
-            cls.condition_layers.append(Linear.from_config(
+            # cls.condition_layers.append(Linear.from_config(
+            #     in_size=in_size + in_condition_size,
+            #     out_size=condition_size,
+            #     num_splits=num_splits,
+            #     key=next(key_gen),
+            #     is_first_layer=False
+            # ))
+
+            cls.condition_layers.append(initialization_scheme(
                 in_size=in_size + in_condition_size,
                 out_size=condition_size,
                 num_splits=num_splits,
                 key=next(key_gen),
-                is_first_layer=False
+                is_first_layer=False,
+                **activation_kwargs
             ))
 
             for i in range(condition_depth - 2):
+                # cls.condition_layers.append(initialization_scheme(
+                #     in_size=condition_size,
+                #     out_size=condition_size,
+                #     num_splits=num_splits,
+                #     key=next(key_gen),
+                #     is_first_layer=False,
+                #     **activation_kwargs
+                # ))
                 cls.condition_layers.append(initialization_scheme(
                     in_size=condition_size,
                     out_size=condition_size,
@@ -333,23 +359,38 @@ class NeRFComponent(INRModule, ABC):
                     **activation_kwargs
                 ))
 
-            cls.condition_layers.append(Linear.from_config(
+            # cls.condition_layers.append(Linear.from_config(
+            #     in_size=condition_size,
+            #     out_size=hidden_size,
+            #     num_splits=num_splits,
+            #     key=next(key_gen),
+            #     is_first_layer=False
+            # ))
+            cls.condition_layers.append(initialization_scheme(
                 in_size=condition_size,
                 out_size=hidden_size,
                 num_splits=num_splits,
                 key=next(key_gen),
-                is_first_layer=False
+                is_first_layer=False,
+                **activation_kwargs
             ))
         elif condition_depth == 1:
-            cls.condition_layers.append(Linear.from_config(
-                in_size=in_size + in_condition_size,
+            # cls.condition_layers.append(Linear.from_config(
+            #     in_size=in_size + in_condition_size,
+            #     out_size=hidden_size,
+            #     num_splits=num_splits,
+            #     key=next(key_gen),
+            #     is_first_layer=False
+            # ))
+            cls.condition_layers.append(initialization_scheme(
+                in_size=condition_size,
                 out_size=hidden_size,
                 num_splits=num_splits,
                 key=next(key_gen),
-                is_first_layer=False
+                is_first_layer=False,
+                **activation_kwargs
             ))
-        else:
-            pass
+
 
         if (post_processor is not None) and (cls.condition_layers is not None):
             if isinstance(post_processor, eqx.Module):
@@ -384,7 +425,6 @@ class NeRFComponent(INRModule, ABC):
 
         for i, layer in enumerate(self.layers):
             x = layer(x)
-            # x = self.net_activation(x)
             if i % self.skip_layer == 0 and i != 0:
                 x = jnp.concatenate([x, inputs], axis=-1)
 
@@ -396,7 +436,6 @@ class NeRFComponent(INRModule, ABC):
             x = jnp.concatenate([btl, condition], axis=-1)
             for layer in self.condition_layers:
                 x = layer(x)
-                # x = self.net_activation(x)
 
         raw_rgb = self.to_rgb(x).reshape((-1, inputs.shape[1], self.num_rgb_channels))
         return raw_rgb, raw_sigma
