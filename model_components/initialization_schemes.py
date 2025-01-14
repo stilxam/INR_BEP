@@ -128,21 +128,37 @@ def scale_initialization_scheme(init_scheme: Callable, scale_factor: float, *arg
     :param kwargs: Keyword arguments to pass to the initialization scheme
     :return: A new initialization scheme that scales parameters based on the scheme type
     """
+    # Define which parameters should be scaled for each initialization scheme
+    SCALABLE_PARAMS = {
+        "siren_scheme": ["w0"],
+        "finer_scheme": ["w0", "bias_k"],
+        "gaussian_scheme": ["inverse_scale"],
+        # Add new schemes and their scalable parameters here
+    }
+
     # Get initialization scheme name from the function
     scheme_name = init_scheme.__name__
 
-    # Scale parameters based on initialization scheme type
-    if scheme_name == "siren_scheme":
-        if 'w0' in kwargs:
-            kwargs['w0'] *= scale_factor
-    elif scheme_name == "finer_scheme":
-        if 'w0' in kwargs:
-            kwargs['w0'] *= scale_factor
-        if 'bias_k' in kwargs:
-            kwargs['bias_k'] *= scale_factor
-    elif scheme_name == "gaussian_scheme":
-        if 'inverse_scale' in kwargs:
-            kwargs['inverse_scale'] *= scale_factor
+    # Get list of parameters that should be scaled for this scheme
+    scalable_params = SCALABLE_PARAMS.get(scheme_name, [])
 
-    # Return scaled initialization
+    # Scale only the designated parameters if they exist in kwargs
+    for param in scalable_params:
+        if param in kwargs:
+            kwargs[param] *= scale_factor
+
+    # Return initialization with scaled parameters
     return init_scheme(*args, **kwargs)
+
+# # Scale parameters based on initialization scheme type
+#     if scheme_name == "siren_scheme":
+#         if 'w0' in kwargs:
+#             kwargs['w0'] *= scale_factor
+#     elif scheme_name == "finer_scheme":
+#         if 'w0' in kwargs:
+#             kwargs['w0'] *= scale_factor
+#         if 'bias_k' in kwargs:
+#             kwargs['bias_k'] *= scale_factor
+#     elif scheme_name == "gaussian_scheme":
+#         if 'inverse_scale' in kwargs:
+#             kwargs['inverse_scale'] *= scale_factor
