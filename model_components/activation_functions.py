@@ -5,7 +5,6 @@ from typing import Union, Tuple
 import jax
 from jax import numpy as jnp
 
-from model_components.inr_layers import HOSCLayer
 
 
 def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]):
