@@ -1,11 +1,12 @@
-""" 
+"""
 Classes that define entire INR models, i.e. models that are composed of INRLayers.
 The __init__ method of these classes typically takes entire layers or modules as arguments.
 If you want to create instances of these classes from hyperparameters such as input size, hidden size, output size, etc.,
-you can either use a from_config method when available, or provide INRLayer instances created from these hyperparameters by their from_config methods. 
+you can either use a from_config method when available, or provide INRLayer instances created from these hyperparameters by their from_config methods.
 """
 from abc import ABC
-from typing import Callable, Optional, Union, Any
+from dataclasses import InitVar
+from typing import Callable, Optional, Union, Any, Tuple, List
 from functools import partial, wraps
 import warnings
 import abc
@@ -14,8 +15,9 @@ import jax
 from jax import numpy as jnp
 from jax import random, lax
 import equinox as eqx
+from jax._src.numpy.linalg import outer
 
-from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer
+from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer, SirenLayer
 from model_components import auxiliary as aux
 
 from common_jax_utils import key_generator
@@ -42,9 +44,9 @@ class INRModule(eqx.Module):
 
 
 class MLPINR(eqx.nn.Sequential, INRModule):
-    """MLPINR 
+    """MLPINR
     Mostly just eqx.nn.Sequential, but with a
-    class method to create an MLP of INR layers from 
+    class method to create an MLP of INR layers from
     hyperparameters.
     """
 
@@ -64,7 +66,7 @@ class MLPINR(eqx.nn.Sequential, INRModule):
             num_splits=1,
             post_processor: Optional[Callable] = None,
     ):
-        """ 
+        """
         :param in_size: input size of network
         :param out_size: output size of network
         :param hidden_size: hidden size of network
@@ -151,7 +153,7 @@ class MLPINR(eqx.nn.Sequential, INRModule):
 class CombinedINR(INRModule):
     terms: tuple[INRModule]
     post_processor: Callable = aux.real_part
-    """ 
+    """
     An INR that is the sum of multiple INRs.
     """
 
@@ -182,57 +184,189 @@ class CombinedINR(INRModule):
         return self.post_processor(out), state
 
 
-class NeRFComponent(INRModule, ABC):
-    layers: list[INRLayer]
-    condition_layers: list[INRLayer]
-    net_activation: Callable
-    skip_layer: int
-    num_rgb_channels: int
-    num_sigma_channels: int
+
+
+class NeRFBlock(INRModule):
+    """
+    A block in the NeRF architecture that consists of multiple layers.
+    This block can be used to build the main network of the NeRFComponent.
+
+    Attributes:
+        net (MLPINR): The MLP network that forms the block.
+    """
+
+    net: MLPINR
+
+    def is_stateful(self):
+        return self.net.is_stateful()
+
+    # TODO from_config: just basically copy from MLPINR for inputs, and that refer to that
+    @classmethod
+    def from_config(
+            cls,
+            in_size: int,
+            out_size: int,
+            hidden_size: int,
+            block_len: int,
+            layer_type: type[INRLayer],
+            activation_kwargs: dict,
+            key: jax.Array,
+            initialization_scheme: Optional[Callable] = None,
+            initialization_scheme_kwargs: Optional[dict] = None,
+            num_splits=1,
+    ):
+        """
+        Creates a NeRFBlock instance from the given configuration.
+
+        Args:
+            in_size (int): Input size of the block.
+            out_size (int): Output size of the block.
+            hidden_size (int): Hidden size of the block.
+            block_len (int): Length of the block (number of layers).
+            layer_type (type[INRLayer]): Type of the layers to be used.
+            activation_kwargs (dict): Dictionary of activation function arguments.
+            key (jax.Array): Random number generator key.
+            initialization_scheme (Optional[Callable]): Callable for layer initialization.
+            initialization_scheme_kwargs (Optional[dict]): Dictionary of arguments for the initialization scheme.
+            num_splits (int): Number of weight matrices and bias vectors to be used by the layers that support that.
+
+        Returns:
+            NeRFBlock: An instance of NeRFBlock.
+        """
+        key_gen = key_generator(key)
+        initialization_scheme_kwargs = initialization_scheme_kwargs or {}
+        if initialization_scheme is None:
+            initialization_scheme = layer_type.from_config
+        else:
+            initialization_scheme = partial(initialization_scheme, layer_type=layer_type,
+                                            **initialization_scheme_kwargs)
+
+        layers = [
+            initialization_scheme(
+                                in_size=in_size,
+                                out_size=hidden_size,
+                                num_splits=num_splits,
+                                key=next(key_gen),
+                                is_first_layer=True,
+                                **activation_kwargs
+                            )
+        ]
+        if block_len ==1:
+            layers = [
+                initialization_scheme(
+                                in_size=in_size,
+                                out_size=out_size,
+                                num_splits=num_splits,
+                                key=next(key_gen),
+                                is_first_layer=True,
+                                **activation_kwargs
+                            )
+            ]
+        elif block_len==2:
+               layers.append(initialization_scheme(
+                   in_size=hidden_size,
+                   out_size=out_size,
+                   num_splits=num_splits,
+                   key=next(key_gen),
+                   is_first_layer=False,
+                   **activation_kwargs
+               ))
+        if block_len>2:
+            for _ in range(block_len- 2):
+                layers.append(initialization_scheme(
+                    in_size=hidden_size,
+                    out_size=hidden_size,
+                    num_splits=num_splits,
+                    key=next(key_gen),
+                    is_first_layer=False,
+                    **activation_kwargs
+                ))
+            layers.append(initialization_scheme(
+                in_size=hidden_size,
+                out_size=out_size,
+                num_splits=num_splits,
+                key=next(key_gen),
+                is_first_layer=False,
+                **activation_kwargs
+            ))
+
+        return cls(blocks)
+
+    def __call__(self, x, h:Optional[jax.Array]=None, state:Optional[eqx.nn.State]=None, *, key: Optional[jax.Array]=None) -> Tuple[jax.Array, jax.Array]:
+        """
+        Forward pass through the NeRFBlock.
+
+        Args:
+            x (jax.Array): Input array.
+            h (Optional[jax.Array]): Optional hidden state.
+            state (Optional[eqx.nn.State]): Optional state for stateful layers.
+            key (Optional[jax.Array]): Optional random number generator key.
+
+        Returns:
+            Tuple[jax.Array, jax.Array]: Output array and updated hidden state.
+        """
+        inp = h if h is not None else x
+        if self.is_stateful():
+            h_new, new_state = self.net(inp, state)
+            return jnp.concatenate([x, h_new], axis=-1), state
+        h_new = self.net(inp)
+        return x, jnp.concatenate([x, h_new], axis=-1)
+
+class NeRFComponent(INRModule):
+    blocks: List[Union[INRLayer, NeRFBlock]]
+    condition: Optional[List[Union[INRLayer, NeRFBlock]]]
     to_sigma: INRLayer
+    to_rgb: INRLayer
 
     @classmethod
-    def from_config(cls,
-                    hidden_size: int,
-                    condition_size: int,
-                    num_splits: int,
-                    layer_type: type[INRLayer],
-                    activation_kwargs: dict,
-                    key: jax.Array,
-                    initialization_scheme: Optional[Callable] = None,
-                    initialization_scheme_kwargs: Optional[dict] = None,
-                    positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
-                    num_layers: int = 8,
-                    condition_depth: int = 4,
-                    skip_layer: int = 4,
-                    in_size: int = 3,
-                    in_condition_size: int = 2,
-                    out_size: int = 4,
-                    post_processor: Optional[Callable] = None,
-                    ):
+    def from_config(
+        cls,
+        in_size: Tuple[int, int] = (3,2),
+        out_size: Tuple[int, int] = (1,3),
+        bottle_size: int = 256,
+        block_length: int = 4,
+        block_width: int = 512,
+        num_blocks: int = 2,
+        condition_length: Optional[int] = None,
+        condition_width: Optional[int] = None,
+        layer_type: type[INRLayer] = SirenLayer,
+        activation_kwargs: dict = {"s0": 5},
+        key: jax.Array= random.PRNGKey(0),
+        initialization_scheme: Optional[Callable] = None,
+        initialization_scheme_kwargs: Optional[Callable] = None,
+        positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
+        num_splits: int = 1,
+        post_processor: Optional[Callable] = None
+    ):
         """
-        :param in_size: input size of network xyz (3)
-        :param hidden_size: hidden size of network
-        :param condition_size: size of the condition
-        :param num_splits: number of weights matrices (and bias vectors) to be used by the layers that support that.
-        :param layer_type: type of the layers that is to be used
-        :param activation_kwargs: activation_kwargs to be passed to the layers
-        :param key: key for random number generation
-        :param initialization_scheme: (optional) callable that initializes layers
-            it's call signature should be compatible with that of INRLayer.from_config (when the layer_type is set using functools.partial)
-        :param initialization_scheme_kwargs: (optional) dict of kwargs to be passed to the initializaiton scheme (using functools.partial)
-            NB only used if initialization_scheme is provided
-        :param positional_encoding_layer: (optional) PositionalEncodingLayer instance to be used as the first layer
-        :param num_layers: number of layers
-            NB this is including the input layer (which is possibly an encoding layer) and the output layer
-        :param condition_depth: depth of the condition
-        :param skip_layer: number of layers to skip
-        :param in_condition_size: input size of network view dir (2)
-        :param out_size: output size of network before to_rgb and to_sigma
-        :param post_processor: callable to be used on the output (by default: real_part, which takes the real part of a possibly complex array)
+        Creates a NeRFComponent instance from the given configuration.
+
+        Args:
+            in_size (Tuple[int, int]): Tuple representing the number of position coordinates and view angles.
+            out_size (Tuple[int, int]): Tuple representing the number of sigma channels and RGB channels.
+            bottle_size (int): Size of the bottleneck layer.
+            block_length (int): Length of each block.
+            block_width (int): Width of each block.
+            num_blocks (int): Number of blocks in the network.
+            condition_length (Optional[int]): Length of the condition layers.
+            condition_width (Optional[int]): Width of the condition layers.
+            layer_type (type[INRLayer]): Type of the layers to be used.
+            activation_kwargs (dict): Dictionary of activation function arguments.
+            key (jax.Array): Random number generator key.
+            initialization_scheme (Optional[Callable]): Callable for layer initialization.
+            initialization_scheme_kwargs (Optional[Callable]): Dictionary of arguments for the initialization scheme.
+            positional_encoding_layer (Optional[PositionalEncodingLayer]): Positional encoding layer instance.
+            num_splits (int): Number of weight matrices and bias vectors to be used by the layers that support that.
+            post_processor (Optional[Callable]): Callable to be used on the output.
+
+        Returns:
+            NeRFComponent: An instance of NeRFComponent.
         """
 
+        pos_coords, view_coords = in_size
+        num_sigma, num_rgb = out_size
         key_gen = key_generator(key=key)
+
         initialization_scheme_kwargs = initialization_scheme_kwargs or {}
         if initialization_scheme is None:
             initialization_scheme = layer_type.from_config
@@ -242,203 +376,197 @@ class NeRFComponent(INRModule, ABC):
 
         if positional_encoding_layer is not None:
             first_layer = positional_encoding_layer
-            first_hidden_size = positional_encoding_layer.out_size(in_size=in_size)
+            first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
         else:
             first_layer = initialization_scheme(
-                in_size=in_size,
-                out_size=hidden_size,
+                in_size=pos_coords,
+                out_size=block_width,
                 num_splits=num_splits,
                 key=next(key_gen),
                 is_first_layer=True,
                 **activation_kwargs
             )
-            first_hidden_size = hidden_size
+            first_hidden_size = block_width
 
-        cls.layers = [first_layer]
-        cls.skip_layer = skip_layer
 
-        out_in_size = hidden_size + in_size if num_layers % cls.skip_layer else hidden_size
 
-        if num_layers > 2:
-            if cls.skip_layer == 1:
-                cls.layers.append(initialization_scheme(
-                    in_size=first_hidden_size + in_size,
-                    out_size=hidden_size,
-                    num_splits=num_splits,
-                    key=next(key_gen),
-                    is_first_layer=False,
-                    **activation_kwargs
-                ))
-
-            else:
-                cls.layers.append(initialization_scheme(
+        blocks = [first_layer]
+        if num_blocks == 1:
+            blocks.append(
+                NeRFBlock.from_config(
                     in_size=first_hidden_size,
-                    out_size=hidden_size,
+                    out_size = bottle_size,
+                    hidden_size=block_width,
+                    block_len=block_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    initialization_scheme=initialization_scheme,
+                    initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    key=next(key_gen)
+                )
+            )
+        elif num_blocks ==2:
+            blocks.append(
+                NeRFBlock.from_config(
+                    in_size=first_hidden_size,
+                    out_size = block_width,
+                    hidden_size=block_width,
+                    block_len=block_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    initialization_scheme=initialization_scheme,
+                    initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    key=next(key_gen)
+                )
+            )
+            blocks.append(
+                NeRFBlock.from_config(
+                    in_size=block_width,
+                    out_size = bottle_size,
+                    hidden_size=block_width,
+                    block_len=block_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    initialization_scheme=initialization_scheme,
+                    initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    key=next(key_gen)
+                )
+            )
+        elif num_blocks >=3:
+            blocks.append(
+                NeRFBlock.from_config(
+                    in_size=first_hidden_size,
+                    out_size = block_width,
+                    hidden_size=block_width,
+                    block_len=block_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    initialization_scheme=initialization_scheme,
+                    initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    key=next(key_gen)
+                )
+            )
+            for i in range(num_blocks-2):
+                blocks.append(
+                    NeRFBlock.from_config(
+                        in_size=block_width,
+                        out_size = block_width,
+                        hidden_size=block_width,
+                        block_len=block_length,
+                        layer_type=layer_type,
+                        activation_kwargs=activation_kwargs,
+                        initialization_scheme=initialization_scheme,
+                        initialization_scheme_kwargs=initialization_scheme_kwargs,
+                        key=next(key_gen)
+                    )
+                )
+
+            blocks.append(
+                NeRFBlock.from_config(
+                    in_size=block_width,
+                    out_size = bottle_size,
+                    hidden_size=block_width,
+                    block_len=block_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    initialization_scheme=initialization_scheme,
+                    initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    key=next(key_gen)
+                )
+            )
+
+        condition = None
+        if condition_width and condition_length is not None:
+            if positional_encoding_layer is not None:
+                condition_first_layer = positional_encoding_layer
+                condition_first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
+            else:
+                condition_first_layer = initialization_scheme(
+                    in_size=pos_coords,
+                    out_size=block_width,
                     num_splits=num_splits,
                     key=next(key_gen),
-                    is_first_layer=False,
+                    is_first_layer=True,
                     **activation_kwargs
-                ))
-            for j in range(num_layers - 2):
-                if cls.skip_layer % (j + 2) == 0:
-                    cls.layers.append(initialization_scheme(
-                        in_size=hidden_size + in_size,
-                        out_size=hidden_size,
-                        num_splits=num_splits,
-                        key=next(key_gen),
-                        is_first_layer=False,
-                        **activation_kwargs
-                    ))
+                )
+                condition_first_hidden_size = block_width
+            condition = [condition_first_layer]
+            condition.append(
+                MLPINR.from_config(
+                    in_size=bottle_size+condition_first_hidden_size,
+                    out_size = bottle_size,
+                    hidden_size=condition_width,
+                    num_layers=condition_length,
+                    layer_type=layer_type,
+                    activation_kwargs=activation_kwargs,
+                    key=next(key_gen)
+                )
+                # NeRFBlock.from_config(
+                    # in_size=bottle_size+condition_first_hidden_size,
+                    # out_size = bottle_size,
+                    # hidden_size=condition_width,
+                    # block_len=condition_length,
+                    # layer_type=layer_type,
+                    # activation_kwargs=activation_kwargs,
+                    # initialization_scheme=initialization_scheme,
+                    # initialization_scheme_kwargs=initialization_scheme_kwargs,
+                    # key=next(key_gen)
+                # )
+            )
 
-                else:
-                    cls.layers.append(initialization_scheme(
-                        in_size=hidden_size,
-                        out_size=hidden_size,
-                        num_splits=num_splits,
-                        key=next(key_gen),
-                        is_first_layer=False,
-                        **activation_kwargs
-                    ))
-
-        if post_processor is not None:
-            if isinstance(post_processor, eqx.Module):
-                cls.layers.append(post_processor)
-            else:
-                cls.layers.append(eqx.nn.Lambda(post_processor))
-
-        # cls.bottleneck = Linear.from_config(
-        #     in_size=hidden_size,
-        #     out_size=in_size,
-        #     num_splits=num_splits,
-        #     key=next(key_gen),
-        #     is_first_layer=False
-        # )
-        #
-        cls.bottleneck = initialization_scheme(
-            in_size=hidden_size,
-            out_size=in_size,
-            num_splits=num_splits,
-            key=next(key_gen),
-            is_first_layer=False,
-            **activation_kwargs
-        )
-        cls.condition_layers = []
-        if condition_depth > 1:
-            # cls.condition_layers.append(Linear.from_config(
-            #     in_size=in_size + in_condition_size,
-            #     out_size=condition_size,
-            #     num_splits=num_splits,
-            #     key=next(key_gen),
-            #     is_first_layer=False
-            # ))
-
-            cls.condition_layers.append(initialization_scheme(
-                in_size=in_size + in_condition_size,
-                out_size=condition_size,
-                num_splits=num_splits,
-                key=next(key_gen),
-                is_first_layer=False,
-                **activation_kwargs
-            ))
-
-            for i in range(condition_depth - 2):
-                # cls.condition_layers.append(initialization_scheme(
-                #     in_size=condition_size,
-                #     out_size=condition_size,
-                #     num_splits=num_splits,
-                #     key=next(key_gen),
-                #     is_first_layer=False,
-                #     **activation_kwargs
-                # ))
-                cls.condition_layers.append(initialization_scheme(
-                    in_size=condition_size,
-                    out_size=condition_size,
-                    num_splits=num_splits,
-                    key=next(key_gen),
-                    is_first_layer=False,
-                    **activation_kwargs
-                ))
-
-            # cls.condition_layers.append(Linear.from_config(
-            #     in_size=condition_size,
-            #     out_size=hidden_size,
-            #     num_splits=num_splits,
-            #     key=next(key_gen),
-            #     is_first_layer=False
-            # ))
-            cls.condition_layers.append(initialization_scheme(
-                in_size=condition_size,
-                out_size=hidden_size,
-                num_splits=num_splits,
-                key=next(key_gen),
-                is_first_layer=False,
-                **activation_kwargs
-            ))
-        elif condition_depth == 1:
-            # cls.condition_layers.append(Linear.from_config(
-            #     in_size=in_size + in_condition_size,
-            #     out_size=hidden_size,
-            #     num_splits=num_splits,
-            #     key=next(key_gen),
-            #     is_first_layer=False
-            # ))
-            cls.condition_layers.append(initialization_scheme(
-                in_size=condition_size,
-                out_size=hidden_size,
-                num_splits=num_splits,
-                key=next(key_gen),
-                is_first_layer=False,
-                **activation_kwargs
-            ))
-
-
-        if (post_processor is not None) and (cls.condition_layers is not None):
-            if isinstance(post_processor, eqx.Module):
-                cls.condition_layers.append(post_processor)
-            else:
-                cls.condition_layers.append(eqx.nn.Lambda(post_processor))
-
-        cls.to_rgb = Linear.from_config(
-            in_size=hidden_size,
-            out_size=cls.num_rgb_channels,
-            num_splits=1,
+        to_sigma = Linear.from_config(
+            in_size=bottle_size,
+            out_size=num_sigma,
             key=next(key_gen),
             is_first_layer=False
         )
+        to_rgb = Linear.from_config(
+                    in_size=bottle_size,
+                    out_size=num_rgb,
+                    key=next(key_gen),
+                    is_first_layer=False
+                )
 
-        cls.to_sigma = Linear.from_config(
-            in_size=hidden_size,
-            out_size=cls.num_sigma_channels,
-            num_splits=1,
-            key=next(key_gen),
-            is_first_layer=False
+        return cls(
+            blocks=blocks,
+            condition=condition,
+            to_sigma=to_sigma,
+            to_rgb=to_rgb
         )
-
-        return cls
-
-    def __call__(self, x, condition):
+    def __call__(self, position, view_angle, state: Optional[eqx.nn.State]=None, *, key: Optional[jax.Array] = None):
         """
-        :param x: jnp.ndarray, input xyz
-        :param condition: jnp.ndarray, input viewing angle
+        Forward pass through the NeRFComponent.
+
+        Args:
+            position (jax.Array): Input position coordinates.
+            view_angle (jax.Array): Input view angles.
+            state (Optional[eqx.nn.State]): Optional state for stateful layers.
+            key (Optional[jax.Array]): Optional random number generator key.
+
+        Returns:
+            Tuple[jax.Array, jax.Array]: Output RGB and sigma values.
         """
-        inputs = x
+        # TODO: Implement stateful layers
+        h = position
+        for component in self.blocks:
+            h = component(h)
 
-        for i, layer in enumerate(self.layers):
-            x = layer(x)
-            if i % self.skip_layer == 0 and i != 0:
-                x = jnp.concatenate([x, inputs], axis=-1)
+        raw_sigma = self.to_sigma(h)
 
-        raw_sigma = self.to_sigma(x).reshape((-1, inputs.shape[1], self.num_sigma_channels))
-        if condition is not None:
-            btl = self.bottleneck(x)
-            condition = jnp.tile(condition[:, None, :], (1, inputs.shape[1], 1))
-            condition = condition.reshape((-1, condition.shape[-1]))
-            x = jnp.concatenate([btl, condition], axis=-1)
-            for layer in self.condition_layers:
-                x = layer(x)
+        if self.condition is not None:
+            h_view = self.condition[0](view_angle)
+            h = jnp.concat([h, h_view], axis=-1)
+            h = self.condition[1](h)
 
-        raw_rgb = self.to_rgb(x).reshape((-1, inputs.shape[1], self.num_rgb_channels))
+        raw_rgb = self.to_rgb(h)
+
         return raw_rgb, raw_sigma
+
+
+
+
+
+
 
 
 class NeRFModel(INRModule):

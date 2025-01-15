@@ -843,3 +843,35 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
         :returns: dimensionality of the embedding
         """
         return 2 * self.embedding_matrix.shape[0] * in_size
+
+class TridentPositionalEncoding(PositionalEncodingLayer):
+    """
+    Positional encoding described in TRIDENT paper
+    see https://arxiv.org/pdf/2311.13610
+    """
+    _is_learnable = False
+    s0: float
+
+    @classmethod
+    def from_config(cls, num_frequency: int,  frequency_param: float = 2., scale_param: float = 1.):
+        # powers = jnp.arange(num_frequency, dtype=jnp.int32)/
+        powers = jnp.linspace(0, 1, num_frequency)
+        cls.embedding_matrix = 2* jnp.pi * jnp.pow(frequency_scaling, powers)
+        cls.s0 = scale_param
+        return cls
+
+    def __call__(self, x, *, key: Optional[jax.Array]=None)-> jax.Array:
+        """
+        phi_0(x) = exp(-|s0([x, ..., cos(2pi \sigma^{j/m} x), sin(2pi \sigma^{j/m} x)]^T)|^2 )
+        """
+        frequencies = jax.vmap(lambda coordinate: coordinate * self.embedding_matrix)(x).flatten()
+        trig_freq = jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(frequencies)
+        return jnp.exp(- jnp.square(jnp.abs(self.s0 * trig_freq)))
+
+    def out_size(self, in_size):
+        """
+        Return the number of output channels given the number of input channels
+        :parameter in_size: dimensionality of the input
+        :returns: dimensionality of the embedding
+        """
+        return 2 * self.embedding_matrix.shape[0] * in_size
