@@ -9,3 +9,6 @@ wandb
 !/flax_exp/results/
 /flax_exp/
 /example_data/
+/synthetic_scenes
+/example_data/nerfdata
+/synthetic_scenes.zip
