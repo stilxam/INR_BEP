@@ -549,26 +549,58 @@ class NeRFComponent(INRModule):
         Returns:
             Tuple[jax.Array, jax.Array]: Output RGB and sigma values.
         """
-        # TODO: Implement stateful layers
+        # h = position
+#
+        # if self.block_pos_enc is not None:
+            # h = self.block_pos_enc(h)
+#
+#
+        # for component in self.blocks:
+            # inp, h = component(h)
+#
+        # raw_sigma = self.to_sigma(h)
+#
+        # if self.condition is not None:
+            # h_view = self.conditional_pos_enc(view_angle)
+            # h = jnp.concat([h, h_view], axis=-1)
+            # h = self.condition[1](h)
+#
+        # raw_rgb = self.to_rgb(h)
+#
+        # return raw_rgb, raw_sigma
+        #
         h = position
-
         if self.block_pos_enc is not None:
             h = self.block_pos_enc(h)
 
+        new_state = state
 
         for component in self.blocks:
-            inp, h = component(h)
+            if self.is_stateful() and state is not None:
+                substate = state.substate(component)
+                inp, h, substate = component(h, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                inp, h = component(h)
 
         raw_sigma = self.to_sigma(h)
 
         if self.condition is not None:
             h_view = self.conditional_pos_enc(view_angle)
-            h = jnp.concat([h, h_view], axis=-1)
-            h = self.condition[1](h)
+            h = jnp.concatenate([h, h_view], axis=-1)
+            if self.is_stateful() and state is not None:
+                substate = state.substate(self.condition)
+                h = self.condition(h, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                h = self.condition(h)
 
         raw_rgb = self.to_rgb(h)
 
+        if self.is_stateful() and state is not None:
+            return raw_rgb, raw_sigma, new_state
         return raw_rgb, raw_sigma
+
 
 
 class NeRF(INRModule):
