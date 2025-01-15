@@ -184,8 +184,6 @@ class CombinedINR(INRModule):
         return self.post_processor(out), state
 
 
-
-
 class NeRFBlock(INRModule):
     """
     A block in the NeRF architecture that consists of multiple layers.
@@ -195,7 +193,7 @@ class NeRFBlock(INRModule):
         net (MLPINR): The MLP network that forms the block.
     """
 
-    net: MLPINR
+    net: eqx.Module
 
     def is_stateful(self):
         return self.net.is_stateful()
@@ -290,9 +288,9 @@ class NeRFBlock(INRModule):
                 **activation_kwargs
             ))
 
-        return cls(blocks)
+        return cls(eqx.nn.Sequential(layers))
 
-    def __call__(self, x, h:Optional[jax.Array]=None, state:Optional[eqx.nn.State]=None, *, key: Optional[jax.Array]=None) -> Tuple[jax.Array, jax.Array]:
+    def __call__(self, x, h:Optional[jax.Array]=None, state:Optional[eqx.nn.State]=None, *, key: Optional[jax.Array]=None) -> Union[Tuple[jax.Array, jax.Array], Tuple[jax.Array, jax.Array, eqx.nn.State]]]:
         """
         Forward pass through the NeRFBlock.
 
@@ -308,15 +306,20 @@ class NeRFBlock(INRModule):
         inp = h if h is not None else x
         if self.is_stateful():
             h_new, new_state = self.net(inp, state)
-            return jnp.concatenate([x, h_new], axis=-1), state
+            return x, jnp.concatenate([x, h_new], axis=-1), new_state
         h_new = self.net(inp)
         return x, jnp.concatenate([x, h_new], axis=-1)
 
+
 class NeRFComponent(INRModule):
-    blocks: List[Union[INRLayer, NeRFBlock]]
-    condition: Optional[List[Union[INRLayer, NeRFBlock]]]
+    block_pos_enc: Union[INRLayer, PositionalEncodingLayer]
+    blocks: eqx.Module
+
     to_sigma: INRLayer
     to_rgb: INRLayer
+
+    conditional_pos_enc: Optional[Union[INRLayer, PositionalEncodingLayer]] = None
+    condition: Optional[eqx.Module] = None
 
     @classmethod
     def from_config(
@@ -375,10 +378,10 @@ class NeRFComponent(INRModule):
                                             **initialization_scheme_kwargs)
 
         if positional_encoding_layer is not None:
-            first_layer = positional_encoding_layer
+            block_pos_enc = positional_encoding_layer
             first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
         else:
-            first_layer = initialization_scheme(
+            block_pos_enc= initialization_scheme(
                 in_size=pos_coords,
                 out_size=block_width,
                 num_splits=num_splits,
@@ -390,7 +393,7 @@ class NeRFComponent(INRModule):
 
 
 
-        blocks = [first_layer]
+        blocks = []
         if num_blocks == 1:
             blocks.append(
                 NeRFBlock.from_config(
@@ -478,10 +481,10 @@ class NeRFComponent(INRModule):
         condition = None
         if condition_width and condition_length is not None:
             if positional_encoding_layer is not None:
-                condition_first_layer = positional_encoding_layer
+                condition_pos_enc = positional_encoding_layer
                 condition_first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
             else:
-                condition_first_layer = initialization_scheme(
+                conditional_pos_enc = initialization_scheme(
                     in_size=pos_coords,
                     out_size=block_width,
                     num_splits=num_splits,
@@ -490,7 +493,7 @@ class NeRFComponent(INRModule):
                     **activation_kwargs
                 )
                 condition_first_hidden_size = block_width
-            condition = [condition_first_layer]
+            condition = []
             condition.append(
                 MLPINR.from_config(
                     in_size=bottle_size+condition_first_hidden_size,
@@ -501,16 +504,6 @@ class NeRFComponent(INRModule):
                     activation_kwargs=activation_kwargs,
                     key=next(key_gen)
                 )
-                # NeRFBlock.from_config(
-                    # in_size=bottle_size+condition_first_hidden_size,
-                    # out_size = bottle_size,
-                    # hidden_size=condition_width,
-                    # block_len=condition_length,
-                    # layer_type=layer_type,
-                    # activation_kwargs=activation_kwargs,
-                    # initialization_scheme=initialization_scheme,
-                    # initialization_scheme_kwargs=initialization_scheme_kwargs,
-                    # key=next(key_gen)
                 # )
             )
 
@@ -526,13 +519,23 @@ class NeRFComponent(INRModule):
                     key=next(key_gen),
                     is_first_layer=False
                 )
+        if condition is not None:
+            return cls(
+                block_pos_enc=block_pos_enc,
+                conditional_pos_enc=conditional_pos_enc,
+                blocks=eqx.nn.Sequential(blocks),
+                condition=eqx.nn.Sequential(condition),
+                to_sigma=to_sigma,
+                to_rgb=to_rgb
+            )
+        else:
+            return cls(
+                block_pos_enc=block_pos_enc,
+                blocks=eqx.nn.Sequential(blocks),
+                to_sigma=to_sigma,
+                to_rgb=to_rgb
+            )
 
-        return cls(
-            blocks=blocks,
-            condition=condition,
-            to_sigma=to_sigma,
-            to_rgb=to_rgb
-        )
     def __call__(self, position, view_angle, state: Optional[eqx.nn.State]=None, *, key: Optional[jax.Array] = None):
         """
         Forward pass through the NeRFComponent.
@@ -548,13 +551,18 @@ class NeRFComponent(INRModule):
         """
         # TODO: Implement stateful layers
         h = position
+
+        if self.block_pos_enc is not None:
+            h = self.block_pos_enc(h)
+
+
         for component in self.blocks:
-            h = component(h)
+            inp, h = component(h)
 
         raw_sigma = self.to_sigma(h)
 
         if self.condition is not None:
-            h_view = self.condition[0](view_angle)
+            h_view = self.conditional_pos_enc(view_angle)
             h = jnp.concat([h, h_view], axis=-1)
             h = self.condition[1](h)
 
@@ -563,291 +571,33 @@ class NeRFComponent(INRModule):
         return raw_rgb, raw_sigma
 
 
+class NeRF(INRModule):
+    coarse_model: NeRFComponent
+    fine_model: NeRFComponent
+    num_coarse_samples: int
+    num_fine_samples: int
+    use_viewdirs: bool
+    near: float
+    far: float
+
+    block_width: int
+    block_length: int
+    num_blocks: int
+
+    condition_length: Optional[int]
+    condition_width: Optional[int]
 
 
 
-
-
-
-class NeRFModel(INRModule):
-    """
-    A NeRF model that is composed of two NeRFComponents, one for the coarse nerf and one for the fine nerf.
-    implementations strongly inspired by Google Research's JAX NeRF implementation
-    https://github.com/google-research/google-research/blob/master/jaxnerf/nerf/models.py
-
-    """
-    coarse_mlp: type[NeRFComponent]
-    fine_mlp: type[NeRFComponent]
-    condition: Union[bool, None]
-
-    num_coarse_samples: int  # The number of samples for the coarse nerf.
-    num_fine_samples: int  # The number of samples for the fine nerf.
-    use_viewdirs: bool  # If True, use viewdirs as an input.
-    near: float  # The distance to the near plane
-    far: float  # The distance to the far plane
-    noise_std: float  # The std dev of noise added to raw sigma.
-
-    num_rgb_channels: int  # The number of RGB channels.
-    num_sigma_channels: int  # The number of density channels.
-    white_bkgd: bool  # If True, use a white background.
-    min_deg_point: int  # The minimum degree of positional encoding for positions.
-    max_deg_point: int  # The maximum degree of positional encoding for positions.
-    deg_view: int  # The degree of positional encoding for viewdirs.
-    lindisp: bool  # If True, sample linearly in disparity rather than in depth.
-    legacy_posenc_order: bool  # Keep the same ordering as the original tf code.
-
-    # activation_kwargs: Callable # i don't think we need to have it in this class as it is passed to the nerfcomponents
-
-    # net_activation: Callable[..., Any]  # MLP activation
-    rgb_activation: Callable = jax.nn.sigmoid
-    sigma_activation: Callable = jax.nn.relu
-    key: jax.Array
 
     @classmethod
     def from_config(cls,
-                    num_coarse_samples: int,
-                    num_fine_samples: int,
-                    use_viewdirs: bool,
-                    near: float,
-                    far: float,
-                    noise_std: float,
-                    hidden_size: int,
-                    net_depth: int,
-                    condition_size: int,
-                    net_depth_condition: Optional[int],
-                    layer_type: type[INRLayer],
-                    skip_layer: int,
-                    num_rgb_channels: int,
-                    num_sigma_channels: int,
-                    white_bkgd: bool,
-                    min_deg_point: int,
-                    max_deg_point: int,
-                    deg_view: int,
-                    lindisp: bool,
 
-                    rgb_activation: Callable[..., Any],
-                    sigma_activation: Callable[..., Any],
+    ):
+        pass
 
-                    activation_kwargs: dict,
-                    key: jax.Array,
-                    initialization_scheme: Optional[Callable] = None,
-                    initialization_scheme_kwargs: Optional[dict] = None,
-                    positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
-                    post_processor: Optional[Callable] = None,
-                    ):
-        """
-        :param num_coarse_samples: int, the number of samples for the coarse nerf.
-        :param num_fine_samples: int, the number of samples for the fine nerf.
-        :param use_viewdirs: bool, if True, use viewdirs as an input.
-        :param near: float, the distance to the near plane
-        :param far: float, the distance to the far plane
-        :param noise_std: float, the std dev of noise added to raw sigma.
-        :param hidden_size: int, hidden size of network
-        :param net_depth: int, number of layers
-            NB this is including the input layer (which is possibly an encoding layer) and the output layer
-        :param condition_size: int, size of the condition
-        :param net_depth_condition: int, depth of the condition
-        :param layer_type: type of the layers that is to be used
-        :param skip_layer: int, number of layers to skip
-        :param num_rgb_channels: int, the number of RGB channels.
-        :param num_sigma_channels: int, the number of density channels.
-        :param white_bkgd: bool, if True, use a white background.
-        :param min_deg_point: int, the minimum degree of positional encoding for positions.
-        :param max_deg_point: int, the maximum degree of positional encoding for positions.
-        :param deg_view: int, the degree of positional encoding for viewdirs.
-        :param lindisp: bool, if True, sample linearly in disparity rather than in depth.
-        :param legacy_posenc_order: bool, keep the same ordering as the original tf code.
-        :param rgb_activation: Callable[..., Any], activation function for rgb
-        :param sigma_activation: Callable[..., Any], activation function for sigma
-        :param activation_kwargs: dict, activation_kwargs to be passed to the layers
-        :param key: jax.Array, key for random number generation
-        :param initialization_scheme: (optional) callable that initializes layers
-            it's call signature should be compatible with that of INRLayer.from_config (when the layer_type is set using functools.partial)
-        :param initialization_scheme_kwargs: (optional) dict of kwargs to be passed to the initializaiton scheme (using functools.partial)
-            NB only used if initialization_scheme is provided
-        :param positional_encoding_layer: (optional) PositionalEncodingLayer instance to be used as the first layer
-        :param post_processor: (optional) callable to be used on the output (by default: real_part, which takes the real part of a possibly complex array)
-        :return: a NeRFModel object according to specification
-        """
-
-        x = jnp.exp(jnp.linspace(-90, 90, 1024))
-        x = jnp.concatenate([-x[::-1], x], 0)
-        rgb = rgb_activation(x)
-        assert jnp.all(rgb >= 0) and jnp.all(rgb <= 1), "rgb_activation does not produce outputs in [0, 1]"
-
-        sigma = sigma_activation(x)
-        assert jnp.all(sigma >= 0), "sigma_activation does not produce non-negative outputs"
-
-        if net_depth_condition is None:
-            cls.condition = None
-        else:
-            cls.condition = True
-
-        key_gen = key_generator(key=key)
-
-        in_size = 5 if use_viewdirs else 3
-        out_size = num_rgb_channels + num_sigma_channels
-
-        cls.coarse_mlp = NeRFComponent.from_config(
-            in_size=in_size,
-            out_size=out_size,
-            hidden_size=hidden_size,
-            condition_size=condition_size,
-            num_layers=net_depth,
-            condition_depth=net_depth_condition,
-            skip_layer=skip_layer,
-            layer_type=layer_type,
-            activation_kwargs=activation_kwargs,
-            key=next(key_gen),
-            initialization_scheme=initialization_scheme,
-            initialization_scheme_kwargs=initialization_scheme_kwargs,
-            positional_encoding_layer=positional_encoding_layer,
-            num_splits=1,
-            post_processor=post_processor,
-
-        )
-        cls.fine_mlp = NeRFComponent.from_config(
-
-            in_size=in_size,
-            out_size=out_size,
-            hidden_size=hidden_size,
-            condition_size=condition_size,
-            num_layers=net_depth,
-            condition_depth=net_depth_condition,
-            skip_layer=skip_layer,
-            layer_type=layer_type,
-            activation_kwargs=activation_kwargs,
-            key=next(key_gen),
-            initialization_scheme=initialization_scheme,
-            initialization_scheme_kwargs=initialization_scheme_kwargs,
-            positional_encoding_layer=positional_encoding_layer,
-            num_splits=1,
-            post_processor=post_processor,
-        )
-
-        cls.num_coarse_samples = num_coarse_samples
-        cls.num_fine_samples = num_fine_samples
-        cls.use_viewdirs = use_viewdirs
-        cls.near = near
-        cls.far = far
-        cls.noise_std = noise_std
-        cls.num_rgb_channels = num_rgb_channels
-        cls.num_sigma_channels = num_sigma_channels
-        cls.white_bkgd = white_bkgd
-        cls.min_deg_point = min_deg_point
-        cls.max_deg_point = max_deg_point
-        cls.deg_view = deg_view
-        cls.lindisp = lindisp
-
-        return cls
-
-    def __call__(self, rays, randomized: bool = False):
-        # Stratified sampling along rays
-
-        key_gen = key_generator(key=self.key)
-        z_vals, samples = self.sample_along_rays(
-            next(key_gen),
-            rays.origins,
-            rays.directions,
-            self.num_coarse_samples,
-            self.near,
-            self.far,
-            randomized,
-            self.lindisp,
-        )
-        # samples_enc = self.posenc(
-        #     samples,
-        #     self.min_deg_point,
-        #     self.max_deg_point,
-        #     self.legacy_posenc_order,
-        # )
-
-        # Point attribute predictions
-        # if self.use_viewdirs:
-        #     viewdirs_enc = self.posenc(
-        #         rays.viewdirs,
-        #         0,
-        #         self.deg_view,
-        #         self.legacy_posenc_order,
-        #     )
-        #     raw_rgb, raw_sigma = self.coarse_mlp(samples_enc, viewdirs_enc)
-        # else:
-        #     raw_rgb, raw_sigma = self.coarse_mlp(samples_enc)
-
-        if self.use_viewdirs:
-            input = jnp.concatenate([samples, rays.viewdirs], axis=-1)
-        else:
-            input = samples
-
-        if self.condition:
-            raw_rgb, raw_sigma = self.coarse_mlp(input, self.condition)
-        elif self.condition is None:
-            raw_rgb, raw_sigma = self.coarse_mlp(input, None)
-        else:
-            raise ValueError("condition must be either True or None")
-
-        # Add noises to regularize the density predictions if needed
-        raw_sigma = self.add_gaussian_noise(
-            next(key_gen),
-            raw_sigma,
-            self.noise_std,
-            randomized,
-        )
-        rgb = self.rgb_activation(raw_rgb)
-        sigma = self.sigma_activation(raw_sigma)
-        # Volumetric rendering.
-        comp_rgb, disp, acc, weights = self.volumetric_rendering(
-            rgb,
-            sigma,
-            z_vals,
-            rays.directions,
-            white_bkgd=self.white_bkgd,
-        )
-        ret = [
-            (comp_rgb, disp, acc),
-        ]
-        # Hierarchical sampling based on coarse predictions
-        if self.num_fine_samples > 0:
-            z_vals_mid = .5 * (z_vals[Ellipsis, 1:] + z_vals[Ellipsis, :-1])
-            z_vals, samples = self.sample_pdf(
-                next(key_gen),
-                z_vals_mid,
-                weights[Ellipsis, 1:-1],
-                rays.origins,
-                rays.directions,
-                z_vals,
-                self.num_fine_samples,
-                randomized,
-            )
-            samples_enc = self.posenc(
-                samples,
-                self.min_deg_point,
-                self.max_deg_point,
-                self.legacy_posenc_order,
-            )
-
-            if self.use_viewdirs:
-                raw_rgb, raw_sigma = self.fine_mlp(samples_enc, viewdirs_enc)
-            else:
-                raw_rgb, raw_sigma = self.fine_mlp(samples_enc)
-
-            raw_sigma = self.add_gaussian_noise(
-                next(key_gen),
-                raw_sigma,
-                self.noise_std,
-                randomized,
-            )
-            rgb = self.rgb_activation(raw_rgb)
-            sigma = self.sigma_activation(raw_sigma)
-            comp_rgb, disp, acc, unused_weights = self.volumetric_rendering(
-                rgb,
-                sigma,
-                z_vals,
-                rays.directions,
-                white_bkgd=self.white_bkgd,
-            )
-            ret.append((comp_rgb, disp, acc))
-        return ret
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        pass
 
     @staticmethod
     def cast_rays(z_vals, origins, directions):
@@ -892,36 +642,6 @@ class NeRFModel(INRModule):
 
         coords = self.cast_rays(z_vals, origins, directions)
         return z_vals, coords
-
-    #
-    # @staticmethod
-    # def posenc(x, min_deg, max_deg, legacy_posenc_order=False):
-    #     """
-    #     Cat x with a positional encoding of x with scales 2^[min_deg, max_deg-1].
-    #
-    #     Instead of computing [sin(x), cos(x)], we use the trig identity
-    #     cos(x) = sin(x + pi/2) and do one vectorized call to sin([x, x+pi/2]).
-    #
-    #     :param x: jnp.ndarray, variables to be encoded. Note that x should be in [-pi, pi].
-    #     :param min_deg: int, the minimum (inclusive) degree of the encoding.
-    #     :param max_deg: int, the maximum (exclusive) degree of the encoding.
-    #     :param legacy_posenc_order: bool, keep the same ordering as the original tf code.
-    #
-    #     :return: jnp.ndarray, encoded variables.
-    #     """
-    #     if min_deg == max_deg:
-    #         return x
-    #     scales = jnp.array([2 ** i for i in range(min_deg, max_deg)])
-    #     if legacy_posenc_order:
-    #         xb = x[Ellipsis, None, :] * scales[:, None]
-    #         four_feat = jnp.reshape(
-    #             jnp.sin(jnp.stack([xb, xb + 0.5 * jnp.pi], -2)),
-    #             list(x.shape[:-1]) + [-1])
-    #     else:
-    #         xb = jnp.reshape((x[Ellipsis, None, :] * scales[:, None]),
-    #                          list(x.shape[:-1]) + [-1])
-    #         four_feat = jnp.sin(jnp.concatenate([xb, xb + 0.5 * jnp.pi], axis=-1))
-    #     return jnp.concatenate([x] + [four_feat], axis=-1)
 
     @staticmethod
     def add_gaussian_noise(key, raw, noise_std, randomized):
