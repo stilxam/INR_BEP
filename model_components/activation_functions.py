@@ -7,7 +7,7 @@ from jax import numpy as jnp
 
 
 
-def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]):
+def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]) -> jax.Array:
     """
     e^(sum_{x' in x}-|inverse_scale*x'|^2)
 
@@ -22,7 +22,7 @@ def unscaled_gaussian_bump(*x: jax.Array, inverse_scale: Union[float, jax.Array]
     return jnp.exp(-jnp.mean(jnp.square(scaled_x), axis=0))  # mean instead of sum so that we don't have to change the initialization scheme
 
 
-def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
+def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Array], w0: Union[float, jax.Array]) -> jax.Array:
     """
     The WIRE paper (https://arxiv.org/pdf/2301.05187) states that the R->R version of the gabor wavelet is
     \sigma(x) = sin(w_0*x[0])*exp(-(s_0 *x[1])^2).
@@ -61,7 +61,7 @@ def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Arra
 #     scale = s0 * x
 #     return jnp.exp(-jnp.square(jnp.abs(scale)) + 1j * omega)
 
-def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[float, jax.Array])->jax.Array:
+def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[float, jax.Array]) -> jax.Array:
     """
     Implements the n-dimensional WIRE activation function as per the 2D extension.
     :parameter x: one jax.Array per dimension
@@ -93,7 +93,7 @@ def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[f
 #     gaus = jnp.exp(-jnp.square(s0)*arg)
 #     return freq * gaus
 
-def finer_activation(x, w0):
+def finer_activation(x, w0) -> jax.Array:
     """
     FINER activation function: sin((|x| + 1) * x)
     :param x: input array for activation
@@ -115,3 +115,38 @@ def ada_hosc_activation(x: jax.Array, w0: float) -> jax.Array:
     Adaptive HOSC activation function: sin(x)(1-tanh^2(w0 * sin(x)))
     """
     return jnp.sin(x)*(1 - jnp.square(hosc_activation(x, w0)))
+
+
+def quadratic_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Quadratic activation function: 1/(1+(ax)^2)
+    """
+    return 1/(1+jnp.square(a*x))
+
+
+def multi_quadratic_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Multi Quadratic activation function: 1/sqrt(1+(ax)^2)
+    """
+    return 1/jnp.sqrt((1+jnp.square(a*x)))
+
+def laplacian_activation(x: jax.Array, a: float)->jax.Array:
+    """
+    LaPlacian activation function: exp(-|x|/a)
+    """
+    return jnp.exp(-jnp.abs(x)/a)
+
+
+def super_gaussian_activation(x: jax.Array, a: float, b: float) -> jax.Array:
+    """
+    Super Gaussian activation function:[exp(-0.5 * (|x|/a)^2)]^b
+    """
+
+    return jnp.pow(jnp.exp(-0.5 * jnp.square(jnp.abs(x)/a)), b)
+
+
+def exp_sin_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Exponential sine activation function: exp(sin(ax))
+    """
+    return jnp.exp(jnp.sin(a*x))

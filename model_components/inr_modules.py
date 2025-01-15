@@ -693,6 +693,49 @@ class NeRF(INRModule):
         )
 
     def __call__(self, ray, randomized, state: Optional[eqx.nn.State] = None, key: jax.Array = jnp.array([0, 0]))->Tuple[jax.Array, jax.Array, Optional[eqx.nn.State]]:
+        """
+        Perform the forward pass of the NeRF model.
+
+        The forward pass involves the following steps:
+
+        1. **Sample Along Ray**:
+            - The method `sample_along_ray` is called to generate sample points along the ray.
+            - The sample points are determined based on the number of coarse samples, near and far plane distances, and whether to use linear disparity or randomized sampling.
+            - The output is a set of z-values and corresponding sample points.
+
+        2. **Coarse Model Inference**:
+            - The coarse model processes the sampled points to predict raw RGB values and densities (sigma).
+            - If the model is stateful, the state is updated during this process.
+            - The raw sigma values are regularized by adding Gaussian noise if required.
+            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
+
+        3. **Volumetric Rendering**:
+            - The method `volumetric_rendering` is called to perform volumetric rendering using the predicted RGB and sigma values.
+            - This involves computing the accumulated weights, composite RGB values, and disparity map.
+            - The output is a tuple containing the composite RGB values, disparity map, and accumulated weights.
+
+        4. **Hierarchical Sampling**:
+            - If fine sampling is enabled, hierarchical sampling is performed based on the coarse predictions.
+            - The method `sample_pdf` is called to generate additional sample points based on the weights from the coarse model.
+            - The fine model processes these additional sample points to predict refined RGB values and densities.
+            - The raw sigma values are regularized by adding Gaussian noise if required.
+            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
+            - Volumetric rendering is performed again using the refined predictions.
+
+        5. **Return Results**:
+            - The method returns the composite RGB values, disparity map, and accumulated weights for both coarse and fine models.
+            - If the model is stateful, the updated state is also returned.
+
+        Args:
+            ray: The input ray containing origins, directions, and view directions.
+            randomized: Boolean indicating whether to use randomized sampling.
+            state: Optional state for stateful layers.
+            key: Random number generator key.
+
+        Returns:
+            A tuple containing the rendered RGB values, disparity map, accumulated weights, and optionally the updated state.
+        """
+
         key_gen = key_generator(key)
 
         z_vals, sample = self.sample_along_ray(
