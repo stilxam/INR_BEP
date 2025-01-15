@@ -611,25 +611,191 @@ class NeRF(INRModule):
     use_viewdirs: bool
     near: float
     far: float
-
-    block_width: int
-    block_length: int
-    num_blocks: int
-
-    condition_length: Optional[int]
-    condition_width: Optional[int]
-
-
+    noise_std: float
+    white_bkgd: bool
+    lindisp: bool
 
 
     @classmethod
     def from_config(cls,
+        in_size,
+        out_size,
+        bottle_size,
+        block_length,
+        block_width,
+        num_blocks,
+        condition_length,
+        condition_width,
+        layer_type,
+        activation_kwargs,
+        key,
+        initialization_scheme,
+        initialization_scheme_kwargs,
+        positional_encoding_layer,
+        num_splits,
+        post_processor,
+        num_coarse_samples,
+        num_fine_samples,
+        use_viewdirs,
+        near,
+        far,
+        noise_std,
+        white_bkgd,
+        lindisp):
+        coarse_model = NeRFComponent.from_config(
+                in_size,
+                out_size,
+                bottle_size,
+                block_length,
+                block_width,
+                num_blocks,
+                condition_length,
+                condition_width,
+                layer_type,
+                activation_kwargs,
+                key,
+                initialization_scheme,
+                initialization_scheme_kwargs,
+                positional_encoding_layer,
+                num_splits,
+                post_processor
+        )
+        fine_model = NeRFComponent.from_config(
+                        in_size,
+                        out_size,
+                        bottle_size,
+                        block_length,
+                        block_width,
+                        num_blocks,
+                        condition_length,
+                        condition_width,
+                        layer_type,
+                        activation_kwargs,
+                        key,
+                        initialization_scheme,
+                        initialization_scheme_kwargs,
+                        positional_encoding_layer,
+                        num_splits,
+                        post_processor
+                )
+        return cls(
+            coarse_model=coarse_model,
+            fine_model=fine_model,
+            num_coarse_samples=num_coarse_samples,
+            num_fine_samples=num_fine_samples,
+            use_viewdirs=use_viewdirs,
+            near=near,
+            far=far,
+            noise_std=noise_std,
+            white_bkgd=white_bkgd,
+            lindisp=lindisp
 
-    ):
-        pass
+        )
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        pass
+    def __call__(self, ray, randomized, state: Optional[eqx.nn.State] = None, key: jax.Array = jnp.array([0, 0]))->Tuple[jax.Array, jax.Array, Optional[eqx.nn.State]]:
+        key_gen = key_generator(key)
+
+        z_vals, sample = self.sample_along_ray(
+            next(key_gen),
+            ray.origins,
+            ray.directions,
+            self.num_coarse_samples,
+            self.near,
+            self.far,
+            randomized,
+            self.lindisp,
+        )
+        new_state = state
+
+        if self.use_viewdirs:
+            if self.coarse_model.is_stateful() and state is not None:
+                substate = state.substate(self.coarse_model)
+                raw_rgb, raw_sigma, substate = self.coarse_model(sample, ray.viewdirs, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                raw_rgb, raw_sigma = self.coarse_model(sample, ray.viewdirs)
+        else:
+            if self.coarse_model.is_stateful() and state is not None:
+                substate = state.substate(self.coarse_model)
+                raw_rgb, raw_sigma, substate = self.coarse_model(sample, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                raw_rgb, raw_sigma = self.coarse_model(sample)
+
+
+        # Add noises to regularize the density predictions if needed
+        raw_sigma = self.add_gaussian_noise(
+            next(key_gen),
+            raw_sigma,
+            self.noise_std,
+            randomized,
+        )
+        rgb = jax.nn.sigmoid(raw_rgb)
+        sigma = jax.nn.relu(raw_sigma)
+
+        # Volumetric rendering.
+        comp_rgb, disp, acc, weights = self.volumetric_rendering(
+            rgb,
+            sigma,
+            z_vals,
+            ray.directions,
+            white_bkgd=self.white_bkgd,
+        )
+        ret = [
+            (comp_rgb, disp, acc),
+        ]
+
+        # Hierarchical sampling based on coarse predictions
+        if self.num_fine_samples > 0:
+            z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            z_vals, samples = self.sample_pdf(
+                next(key_gen),
+                z_vals_mid,
+                weights[..., 1:-1],
+                ray.origins,
+                ray.directions,
+                z_vals,
+                self.num_fine_samples,
+                randomized,
+            )
+            # Construct the "fine" MLP.
+            if self.use_viewdirs:
+                if self.fine_model.is_stateful() and state is not None:
+                    substate = state.substate(self.fine_model)
+                    raw_rgb, raw_sigma, substate = self.fine_model(samples, ray.viewdirs, state=substate)
+                    new_state = new_state.update(substate)
+                else:
+                    raw_rgb, raw_sigma = self.fine_model(samples, ray.viewdirs)
+            else:
+                if self.fine_model.is_stateful() and state is not None:
+                    substate = state.substate(self.fine_model)
+                    raw_rgb, raw_sigma, substate = self.fine_model(samples, state=substate)
+                    new_state = new_state.update(substate)
+                else:
+                    raw_rgb, raw_sigma = self.fine_model(samples)
+
+
+            raw_sigma = self.add_gaussian_noise(
+                next(key_gen),
+                raw_sigma,
+                self.noise_std,
+                randomized,
+            )
+            rgb = jax.nn.sigmoid(raw_rgb)
+            sigma = jax.nn.relu(raw_sigma)
+            comp_rgb, disp, acc, unused_weights = self.volumetric_rendering(
+                rgb,
+                sigma,
+                z_vals,
+                ray.directions,
+                white_bkgd=self.white_bkgd,
+            )
+            ret.append((comp_rgb, disp, acc))
+
+
+        if self.coarse_model.is_stateful() or self.fine_model.is_stateful():
+            return ret, new_state
+        return ret
 
     @staticmethod
     def cast_ray(z_vals, origin, direction):
