@@ -109,12 +109,15 @@ class PointWiseGradLossEvaluator(eqx.Module):
         self.state_update_function = state_update_function
 
     def __call__(self, inr:eqx.Module, locations: jax.Array, state:Optional[eqx.nn.State]=None):
+        # inr = lambda x, *args, **kwargs: inr(x, *args, **kwargs)[0].item()
+        
         if state is not None:
             inr_grad = eqx.filter_grad(inr, has_aux=True)
             pred_val, _ = jax.vmap(inr_grad, (0, None))(locations, state)
         else:
             inr_grad = eqx.filter_grad(inr)
             pred_val = jax.vmap(inr_grad)(locations)
+
         true_val = jax.vmap(self.target_function)(locations)
 
         if self.state_update_function is not None:  # update state if necessary

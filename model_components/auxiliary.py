@@ -70,3 +70,6 @@ def imaginary_part(obj: Union[Callable, jax.Array]):
     def real_func(x, *args, **kwargs):
         return jnp.imag(obj(x, *args, **kwargs))
     return real_func
+
+def scalar_from_array_output(array: jax.Array):
+    return jnp.squeeze(array)

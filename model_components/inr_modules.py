@@ -144,12 +144,12 @@ class MLPINR(eqx.nn.Sequential, INRModule):
 
 class CombinedINR(INRModule):
     terms: tuple[INRModule]
-    post_processor: Callable = aux.real_part
+    post_processor: Callable = aux.scalar_from_array_output
     """ 
     An INR that is the sum of multiple INRs.
     """
 
-    def __init__(self, *terms: INRModule, post_processor: Callable = aux.real_part):
+    def __init__(self, *terms: INRModule, post_processor: Callable = aux.scalar_from_array_output):
         self.terms = terms
         self.post_processor = post_processor
 
