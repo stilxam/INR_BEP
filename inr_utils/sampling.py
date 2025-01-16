@@ -129,11 +129,11 @@ class GridSubsetSampler(Sampler):
         return self.coordinate_set[idx]
 
 
-class NeRFSyntheticScenesSampler(Sampler):
-    images: np.ndarray
-    poses: np.ndarray
-    ray_origins: np.ndarray
-    ray_directions: np.ndarray
+class NeRFSyntheticScenesSampler(Sampler):  # NB this stores all views of the object on the gpu. might be expensive for small gpus but should be fine for Snellius
+    images: jax.Array
+    poses: jax.Array
+    ray_origins: jax.Array
+    ray_directions: jax.Array
     batch_size: int
     poses_per_batch: int
     _pixels_per_pose: int
@@ -162,14 +162,14 @@ class NeRFSyntheticScenesSampler(Sampler):
 
         selected_directions_idx = jnp.concatenate([selected_camera_poses_idx, selected_directions_idx_grid], axis=-1) #  multi indices into (dataset_size, height, width) array
 
-        ray_origins = get_from_multi_indices(self.ray_origins, selected_camera_poses_idx)
+        ray_origins = get_from_multi_indices(self.ray_origins, selected_camera_poses_idx)  # this is a bad idea because it will silently give you integer overflow  # TODO FIX THIS!!!!!
         ray_directions = get_from_multi_indices(self.ray_directions, selected_directions_idx)
         ground_truth_pixel_values = get_from_multi_indices(self.images, selected_directions_idx)
 
         return ray_origins, ray_directions, return_key, ground_truth_pixel_values
 
 
-    def __init__(self, split:str, name:str, batch_size, poses_per_batch, base_path:str="./synthetic_scenes"):
+    def __init__(self, split:str, name:str, batch_size, poses_per_batch, base_path:str="./synthetic_scenes", size_limit=-1):
         folder = f"{base_path}/{split}/{name}"
         if not os.path.exists(folder):
             raise ValueError(f"Following folder does not exist: {folder}")
@@ -185,17 +185,17 @@ class NeRFSyntheticScenesSampler(Sampler):
         target_path = f"{folder}/pre_processed.npz"
         if os.path.exists(target_path):
             pre_processed = np.load(target_path)
-            self.images = pre_processed['images']
-            self.poses = pre_processed['poses']
-            self.ray_origins = pre_processed['ray_origins']
-            self.ray_directions = pre_processed['ray_directions']
+            self.images = jnp.asarray(pre_processed['images'][:size_limit])
+            self.poses = jnp.asarray(pre_processed['poses'][:size_limit])
+            self.ray_origins = jnp.asarray(pre_processed['ray_origins'][:size_limit])
+            self.ray_directions = jnp.asarray(pre_processed['ray_directions'][:size_limit])
         else: # otherwise, create said npz file
             print(f"creating npz archive for {split}, {name}.")
             images, poses, ray_origins, ray_directions = self._create_numpy_arrays(folder)
-            self.images = images
-            self.poses = poses
-            self.ray_origins = ray_origins
-            self.ray_directions = ray_directions
+            self.images = jnp.asarray(images[:size_limit])
+            self.poses = jnp.asarray(poses[:size_limit])
+            self.ray_origins = jnp.asarray(ray_origins[:size_limit])
+            self.ray_directions = jnp.asarray(ray_directions[:size_limit])
             np.savez(target_path, images=images, poses=poses)
             print(f"    finished creating {target_path}")
 
