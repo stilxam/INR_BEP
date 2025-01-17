@@ -6,7 +6,7 @@ Note that the samplers need to be jittable in order for the train step to be jit
 Also note that if a sampler is to be used to train a hypernetwork, it should be vmap-able too.
 """
 import abc
-from typing import Union
+from typing import Union, Optional
 
 import jax
 from jax import numpy as jnp
@@ -172,7 +172,7 @@ class SoundSampler(Sampler):
     batch_size: int
     
     @load_arrays
-    def __init__(self, sound_fragment: jax.Array, fragment_length: int, window_size: int, batch_size: int):
+    def __init__(self, sound_fragment: jax.Array, window_size: int, batch_size: int, fragment_length: Optional[int]=None):
         """
         Initialize the sampler.
         
@@ -182,6 +182,8 @@ class SoundSampler(Sampler):
             window_size: Size of each sampled window
             batch_size: Number of windows to sample in each batch
         """
+        if fragment_length is None:
+            fragment_length = sound_fragment.shape[0]
         self.sound_fragment = sound_fragment
         self.fragment_length = fragment_length
         self.window_size = window_size
@@ -216,5 +218,7 @@ class SoundSampler(Sampler):
         pressure_values = jax.vmap(lambda t: self.sound_fragment[t:t+self.window_size])(start_points)
         
         return time_points, pressure_values
+    
+    
     
     

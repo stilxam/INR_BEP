@@ -18,7 +18,7 @@ import jax
 from jax import numpy as jnp
 from model_components.inr_layers import INRLayer
 
-def siren_scheme(in_size:int, out_size:int,  w0:float,  num_splits=1,*, layer_type:type[INRLayer], key:jax.Array, is_first_layer:bool,  **additional_layer_kwargs):
+def siren_scheme(in_size:int, out_size:int,  w0:float,  num_splits=1,*, layer_type:type[INRLayer], key:jax.Array, is_first_layer:bool, scale_factor:float=1.0  **additional_layer_kwargs):
     """the initialization scheme from the SIREN paper, but able to initialize any layer type that has the same activation kwargs
     
     :param in_size: size of the input to the layer
@@ -63,12 +63,12 @@ def siren_scheme(in_size:int, out_size:int,  w0:float,  num_splits=1,*, layer_ty
     bias_factor = jnp.pi/jnp.sqrt(jnp.sum(jnp.square(weight), axis=1)) # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
     bias = bias_factor * bias
 
-    return cls(weight, bias, **activation_kwargs)
+    return cls(weight * scale_factor, bias * scale_factor, **activation_kwargs)
 
 
 
 
-def finer_scheme(in_size: int, out_size: int, w0: float, bias_k:float, num_splits=1, *, layer_type: type[INRLayer], key: jax.Array, is_first_layer: bool, **additional_layer_kwargs):
+def finer_scheme(in_size: int, out_size: int, w0: float, bias_k:float, num_splits=1, *, layer_type: type[INRLayer], key: jax.Array, is_first_layer: bool, scale_factor:float=1.0, **additional_layer_kwargs):
     """
     Initialization scheme for FINER layers using variable-periodic activation functions.
 
@@ -114,41 +114,42 @@ def finer_scheme(in_size: int, out_size: int, w0: float, bias_k:float, num_split
         minval=-k,
         maxval=k
     )
-
-    return cls(weights, biases, **activation_kwargs)
-
-
-
-def scale_initialization_scheme(init_scheme: Callable, scale_factor: float, *args, **kwargs) -> Callable:
-    """Creates a scaled version of an initialization scheme.
     
-    :param init_scheme: The initialization scheme to scale
-    :param scale_factor: Factor to scale the weights and biases by
-    :param args: Positional arguments to pass to the initialization scheme
-    :param kwargs: Keyword arguments to pass to the initialization scheme
-    :return: A new initialization scheme that scales parameters based on the scheme type
-    """
-    # Define which parameters should be scaled for each initialization scheme
-    SCALABLE_PARAMS = {
-        "siren_scheme": ["w0"],
-        "finer_scheme": ["w0", "bias_k"],
-        "gaussian_scheme": ["inverse_scale"],
-        # Add new schemes and their scalable parameters here
-    }
 
-    # Get initialization scheme name from the function
-    scheme_name = init_scheme.__name__
+    return cls(weights * scale_factor, biases * scale_factor, **activation_kwargs)
 
-    # Get list of parameters that should be scaled for this scheme
-    scalable_params = SCALABLE_PARAMS.get(scheme_name, [])
 
-    # Scale only the designated parameters if they exist in kwargs
-    for param in scalable_params:
-        if param in kwargs:
-            kwargs[param] *= scale_factor
+#chande to within init scheme add scale factor    
+# def scale_initialization_scheme(init_scheme: Callable, scale_factor: float, *args, **kwargs) -> Callable:
+#     """Creates a scaled version of an initialization scheme.
+    
+#     :param init_scheme: The initialization scheme to scale
+#     :param scale_factor: Factor to scale the weights and biases by
+#     :param args: Positional arguments to pass to the initialization scheme
+#     :param kwargs: Keyword arguments to pass to the initialization scheme
+#     :return: A new initialization scheme that scales parameters based on the scheme type
+#     """
+#     # Define which parameters should be scaled for each initialization scheme
+#     SCALABLE_PARAMS = {
+#         "siren_scheme": ["w0"],
+#         "finer_scheme": ["w0", "bias_k"],
+#         "gaussian_scheme": ["inverse_scale"],
+#         # Add new schemes and their scalable parameters here
+#     }
 
-    # Return initialization with scaled parameters
-    return init_scheme(*args, **kwargs)
+#     # Get initialization scheme name from the function
+#     scheme_name = init_scheme.__name__
+
+#     # Get list of parameters that should be scaled for this scheme
+#     scalable_params = SCALABLE_PARAMS.get(scheme_name, [])
+
+#     # Scale only the designated parameters if they exist in kwargs
+#     for param in scalable_params:
+#         if param in kwargs:
+#             kwargs[param] *= scale_factor
+
+#     # Return initialization with scaled parameters
+#     return init_scheme(*args, **kwargs)
 
 # # Scale parameters based on initialization scheme type
 #     if scheme_name == "siren_scheme":
