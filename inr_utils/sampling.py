@@ -155,18 +155,19 @@ class NeRFSyntheticScenesSampler(Sampler):  # NB this stores all views of the ob
 
         selected_camera_poses_idx = jax.random.choice(poses_key, dataset_size, shape=(self.poses_per_batch,))
         selected_directions_idx_flat = jax.random.choice(directions_key, grid_size,  shape=(self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
+        selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None], (self.poses_per_batch, self._pixels_per_pose))
 
         selected_directions_idx_grid = jax.vmap(
             lambda flat_index: jnp.unravel_index(flat_index, shape=(height, width))
         )(selected_directions_idx_flat)  # multi indices into (height, width) grid
 
-        selected_directions_idx = jnp.concatenate([selected_camera_poses_idx, selected_directions_idx_grid], axis=-1) #  multi indices into (dataset_size, height, width) array
+        selected_directions_idx = (selected_camera_poses_idx,)+ selected_directions_idx_grid #  multi indices into (dataset_size, height, width) array
 
-        ray_origins = get_from_multi_indices(self.ray_origins, selected_camera_poses_idx)  # this is a bad idea because it will silently give you integer overflow  # TODO FIX THIS!!!!!
-        ray_directions = get_from_multi_indices(self.ray_directions, selected_directions_idx)
-        ground_truth_pixel_values = get_from_multi_indices(self.images, selected_directions_idx)
+        ray_origins = self.ray_origins[selected_camera_poses_idx]
+        ray_directions = self.ray_directions[selected_directions_idx]
+        ground_truth_pixel_values = self.images[selected_directions_idx]
 
-        return ray_origins, ray_directions, return_key, ground_truth_pixel_values
+        return ray_origins.reshape((self.batch_size, 3)), ray_directions.reshape(self.batch_size, 3), return_key, ground_truth_pixel_values.reshape((self.batch_size, 3))
 
 
     def __init__(self, split:str, name:str, batch_size, poses_per_batch, base_path:str="./synthetic_scenes", size_limit=-1):
@@ -196,7 +197,7 @@ class NeRFSyntheticScenesSampler(Sampler):  # NB this stores all views of the ob
             self.poses = jnp.asarray(poses[:size_limit])
             self.ray_origins = jnp.asarray(ray_origins[:size_limit])
             self.ray_directions = jnp.asarray(ray_directions[:size_limit])
-            np.savez(target_path, images=images, poses=poses)
+            np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins, ray_directions=ray_directions)
             print(f"    finished creating {target_path}")
 
     @staticmethod
@@ -226,7 +227,7 @@ class NeRFSyntheticScenesSampler(Sampler):  # NB this stores all views of the ob
 
         directions = np.stack([transformed_i, transformed_j, k], axis=-1)  # 2-d grid of 3-d vectors
         camera_matrix = pose[:3, :3]
-        ray_directions = np.einsum(("ijl,kl", directions, camera_matrix))  # multiply each vector in the grid by camera_matrix
+        ray_directions = np.einsum("ijl,kl->ijk", directions, camera_matrix)  # multiply each vector in the grid by camera_matrix
         ray_origin = pose[:3, -1]
 
         return ray_origin, ray_directions
