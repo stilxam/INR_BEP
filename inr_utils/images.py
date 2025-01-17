@@ -63,7 +63,7 @@ def _recursive_linear_interpolation(t:jax.Array, left:jax.Array, right:jax.Array
         + (1-t_0)*_recursive_linear_interpolation(t_rest, left[0], left[1])
         )
 
-def get_from_multi_indices(arr:jax.Array, multi_indices:jax.Array):
+def get_from_multi_indices(arr:Union[jax.Array, np.ndarray], multi_indices:Union[jax.Array, np.ndarray]):
     """
     if multi_indices is a multi-index into arr, e.g. [i0, i1, ..., in]
         then the result is arr[i0, i1, ..., in]
@@ -75,19 +75,23 @@ def get_from_multi_indices(arr:jax.Array, multi_indices:jax.Array):
     :parameter multi_indices: a jax.Array containing multi-indices (should have an appropriate integer type)
     :return: jax.Array as described above
 
-    NB if arr is very large/high dimensional, integer-overflow may happen, silently leading to incorrect results
+    This function also works if both arr and multi_indices are numpy arrays instead of jax Arrays.
+    If these types are mixed, the function should still work but cannot be vmapped or jitted.
     """
-    if len(multi_indices.shape)==1:
-        # base case: we just have one multi_index
-        # and want to retreive the value of arr at that multi_index
-        return arr[tuple(multi_indices)]
-        # n_indexed_dims = len(multi_indices)
-        # indexed_shape = arr.shape[:n_indexed_dims]
-        # out_shape = arr.shape[n_indexed_dims:]
-        # arr_flat = arr.reshape((-1,)+out_shape)
-        # return arr_flat[jnp.ravel_multi_index(multi_indices, dims=indexed_shape, mode='wrap')]  # NB for very large/high dimensional arrays, this may lead to overflow and consequently to periodic output
-    else:
-        return jax.vmap(get_from_multi_indices, in_axes=(None, 0), out_axes=0)(arr, multi_indices)
+    if isinstance(arr, np.ndarray):
+        return arr[tuple(np.moveaxis(multi_indices, -1, 0))]  # np.unstack only available from numpy version 2.1 on
+    return arr[jnp.unstack(multi_indices, axis=-1)]
+    # if len(multi_indices.shape)==1:
+    #     # base case: we just have one multi_index
+    #     # and want to retreive the value of arr at that multi_index
+    #     return arr[tuple(multi_indices)]
+    #     # n_indexed_dims = len(multi_indices)
+    #     # indexed_shape = arr.shape[:n_indexed_dims]
+    #     # out_shape = arr.shape[n_indexed_dims:]
+    #     # arr_flat = arr.reshape((-1,)+out_shape)
+    #     # return arr_flat[jnp.ravel_multi_index(multi_indices, dims=indexed_shape, mode='wrap')]  # NB for very large/high dimensional arrays, this may lead to overflow and consequently to periodic output
+    # else:
+    #     return jax.vmap(get_from_multi_indices, in_axes=(None, 0), out_axes=0)(arr, multi_indices)
 
 def make_linearly_interpolated_image(image:jax.Array)->Callable[[jax.Array], jax.Array]:
     """make_interpolated_image
