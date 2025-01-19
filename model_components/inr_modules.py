@@ -611,50 +611,260 @@ class NeRF(INRModule):
     use_viewdirs: bool
     near: float
     far: float
-
-    block_width: int
-    block_length: int
-    num_blocks: int
-
-    condition_length: Optional[int]
-    condition_width: Optional[int]
-
-
+    noise_std: float
+    white_bkgd: bool
+    lindisp: bool
 
 
     @classmethod
     def from_config(cls,
+        in_size,
+        out_size,
+        bottle_size,
+        block_length,
+        block_width,
+        num_blocks,
+        condition_length,
+        condition_width,
+        layer_type,
+        activation_kwargs,
+        key,
+        initialization_scheme,
+        initialization_scheme_kwargs,
+        positional_encoding_layer,
+        num_splits,
+        post_processor,
+        num_coarse_samples,
+        num_fine_samples,
+        use_viewdirs,
+        near,
+        far,
+        noise_std,
+        white_bkgd,
+        lindisp):
+        coarse_model = NeRFComponent.from_config(
+                in_size,
+                out_size,
+                bottle_size,
+                block_length,
+                block_width,
+                num_blocks,
+                condition_length,
+                condition_width,
+                layer_type,
+                activation_kwargs,
+                key,
+                initialization_scheme,
+                initialization_scheme_kwargs,
+                positional_encoding_layer,
+                num_splits,
+                post_processor
+        )
+        fine_model = NeRFComponent.from_config(
+                        in_size,
+                        out_size,
+                        bottle_size,
+                        block_length,
+                        block_width,
+                        num_blocks,
+                        condition_length,
+                        condition_width,
+                        layer_type,
+                        activation_kwargs,
+                        key,
+                        initialization_scheme,
+                        initialization_scheme_kwargs,
+                        positional_encoding_layer,
+                        num_splits,
+                        post_processor
+                )
+        return cls(
+            coarse_model=coarse_model,
+            fine_model=fine_model,
+            num_coarse_samples=num_coarse_samples,
+            num_fine_samples=num_fine_samples,
+            use_viewdirs=use_viewdirs,
+            near=near,
+            far=far,
+            noise_std=noise_std,
+            white_bkgd=white_bkgd,
+            lindisp=lindisp
 
-    ):
-        pass
+        )
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        pass
+    def __call__(self, ray, randomized, state: Optional[eqx.nn.State] = None, key: jax.Array = jnp.array([0, 0]))->Tuple[jax.Array, jax.Array, Optional[eqx.nn.State]]:
+        """
+        Perform the forward pass of the NeRF model.
+
+        The forward pass involves the following steps:
+
+        1. **Sample Along Ray**:
+            - The method `sample_along_ray` is called to generate sample points along the ray.
+            - The sample points are determined based on the number of coarse samples, near and far plane distances, and whether to use linear disparity or randomized sampling.
+            - The output is a set of z-values and corresponding sample points.
+
+        2. **Coarse Model Inference**:
+            - The coarse model processes the sampled points to predict raw RGB values and densities (sigma).
+            - If the model is stateful, the state is updated during this process.
+            - The raw sigma values are regularized by adding Gaussian noise if required.
+            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
+
+        3. **Volumetric Rendering**:
+            - The method `volumetric_rendering` is called to perform volumetric rendering using the predicted RGB and sigma values.
+            - This involves computing the accumulated weights, composite RGB values, and disparity map.
+            - The output is a tuple containing the composite RGB values, disparity map, and accumulated weights.
+
+        4. **Hierarchical Sampling**:
+            - If fine sampling is enabled, hierarchical sampling is performed based on the coarse predictions.
+            - The method `sample_pdf` is called to generate additional sample points based on the weights from the coarse model.
+            - The fine model processes these additional sample points to predict refined RGB values and densities.
+            - The raw sigma values are regularized by adding Gaussian noise if required.
+            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
+            - Volumetric rendering is performed again using the refined predictions.
+
+        5. **Return Results**:
+            - The method returns the composite RGB values, disparity map, and accumulated weights for both coarse and fine models.
+            - If the model is stateful, the updated state is also returned.
+
+        Args:
+            ray: The input ray containing origins, directions, and view directions.
+            randomized: Boolean indicating whether to use randomized sampling.
+            state: Optional state for stateful layers.
+            key: Random number generator key.
+
+        Returns:
+            A tuple containing the rendered RGB values, disparity map, accumulated weights, and optionally the updated state.
+        """
+
+        key_gen = key_generator(key)
+
+        z_vals, sample = self.sample_along_ray(
+            next(key_gen),
+            ray.origins,
+            ray.directions,
+            self.num_coarse_samples,
+            self.near,
+            self.far,
+            randomized,
+            self.lindisp,
+        )
+        new_state = state
+
+        if self.use_viewdirs:
+            if self.coarse_model.is_stateful() and state is not None:
+                substate = state.substate(self.coarse_model)
+                raw_rgb, raw_sigma, substate = self.coarse_model(sample, ray.viewdirs, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                raw_rgb, raw_sigma = self.coarse_model(sample, ray.viewdirs)
+        else:
+            if self.coarse_model.is_stateful() and state is not None:
+                substate = state.substate(self.coarse_model)
+                raw_rgb, raw_sigma, substate = self.coarse_model(sample, state=substate)
+                new_state = new_state.update(substate)
+            else:
+                raw_rgb, raw_sigma = self.coarse_model(sample)
+
+
+        # Add noises to regularize the density predictions if needed
+        raw_sigma = self.add_gaussian_noise(
+            next(key_gen),
+            raw_sigma,
+            self.noise_std,
+            randomized,
+        )
+        rgb = jax.nn.sigmoid(raw_rgb)
+        sigma = jax.nn.relu(raw_sigma)
+
+        # Volumetric rendering.
+        comp_rgb, disp, acc, weights = self.volumetric_rendering(
+            rgb,
+            sigma,
+            z_vals,
+            ray.directions,
+            white_bkgd=self.white_bkgd,
+        )
+        ret = [
+            (comp_rgb, disp, acc),
+        ]
+
+        # Hierarchical sampling based on coarse predictions
+        if self.num_fine_samples > 0:
+            z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
+            z_vals, samples = self.sample_pdf(
+                next(key_gen),
+                z_vals_mid,
+                weights[..., 1:-1],
+                ray.origins,
+                ray.directions,
+                z_vals,
+                self.num_fine_samples,
+                randomized,
+            )
+            # Construct the "fine" MLP.
+            if self.use_viewdirs:
+                if self.fine_model.is_stateful() and state is not None:
+                    substate = state.substate(self.fine_model)
+                    raw_rgb, raw_sigma, substate = self.fine_model(samples, ray.viewdirs, state=substate)
+                    new_state = new_state.update(substate)
+                else:
+                    raw_rgb, raw_sigma = self.fine_model(samples, ray.viewdirs)
+            else:
+                if self.fine_model.is_stateful() and state is not None:
+                    substate = state.substate(self.fine_model)
+                    raw_rgb, raw_sigma, substate = self.fine_model(samples, state=substate)
+                    new_state = new_state.update(substate)
+                else:
+                    raw_rgb, raw_sigma = self.fine_model(samples)
+
+
+            raw_sigma = self.add_gaussian_noise(
+                next(key_gen),
+                raw_sigma,
+                self.noise_std,
+                randomized,
+            )
+            rgb = jax.nn.sigmoid(raw_rgb)
+            sigma = jax.nn.relu(raw_sigma)
+            comp_rgb, disp, acc, unused_weights = self.volumetric_rendering(
+                rgb,
+                sigma,
+                z_vals,
+                ray.directions,
+                white_bkgd=self.white_bkgd,
+            )
+            ret.append((comp_rgb, disp, acc))
+
+
+        if self.coarse_model.is_stateful() or self.fine_model.is_stateful():
+            return ret, new_state
+        return ret
 
     @staticmethod
-    def cast_rays(z_vals, origins, directions):
+    def cast_ray(z_vals, origin, direction):
         """
-        Cast rays through pixel positions.
+        Cast ray through pixel positions.
         """
-        return origins[Ellipsis, None, :] + z_vals[Ellipsis, None] * directions[Ellipsis, None, :]
+        return origin[None, :] + z_vals[:, None] * direction[ None, :]
 
-    def sample_along_rays(self, key, origins, directions, num_samples, near, far, randomized, lindisp):
+    def sample_along_ray(self, key, origin, direction, num_samples, near, far, randomized, lindisp):
         """
-        Sample along rays.
+        Sample along a ray.
 
         :param key: jnp.ndarray(float32), [2,], random number generator.
-        :param origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
-        :param directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
+        :param origin: jnp.ndarray(float32), [3], ray origin.
+        :param direction: jnp.ndarray(float32), [3], ray direction.
         :param num_samples: int, the number of samples.
         :param near: float, the distance to the near plane.
         :param far: float, the distance to the far plane.
         :param randomized: bool, use randomized samples.
         :param lindisp: bool, sample linearly in disparity rather than in depth.
 
-        :return: z_vals: jnp.ndarray(float32), [batch_size, num_samples].
-        :return: coords: jnp.ndarray(float32), [batch_size, num_samples, 3].
+        :return: z_vals: jnp.ndarray(float32), [num_samples].
+        :return: coords: jnp.ndarray(float32), [num_samples, 3].
+
+
         """
-        batch_size = origins.shape[0]
 
         t_vals = jnp.linspace(0., 1., num_samples)
         if lindisp:
@@ -663,16 +873,14 @@ class NeRF(INRModule):
             z_vals = near * (1. - t_vals) + far * t_vals
 
         if randomized:
-            mids = .5 * (z_vals[Ellipsis, 1:] + z_vals[Ellipsis, :-1])
-            upper = jnp.concatenate([mids, z_vals[Ellipsis, -1:]], -1)
-            lower = jnp.concatenate([z_vals[Ellipsis, :1], mids], -1)
-            t_rand = random.uniform(key, [batch_size, num_samples])
+            mids = .5 * (z_vals[1:] + z_vals[:-1])
+            upper = jnp.concatenate([mids, z_vals[-1:]], -1)
+            lower = jnp.concatenate([z_vals[:1], mids], -1)
+            t_rand = random.uniform(key, [num_samples])
             z_vals = lower + (upper - lower) * t_rand
-        else:
-            # Broadcast z_vals to make the returned shape consistent.
-            z_vals = jnp.broadcast_to(z_vals[None, Ellipsis], [batch_size, num_samples])
 
-        coords = self.cast_rays(z_vals, origins, directions)
+        coords = self.cast_ray(z_vals, origin, direction)
+
         return z_vals, coords
 
     @staticmethod
@@ -692,33 +900,33 @@ class NeRF(INRModule):
             return raw
 
     @staticmethod
-    def volumetric_rendering(rgb, sigma, z_vals, dirs, white_bkgd):
+    def volumetric_rendering(rgb, sigma, z_vals, direction, white_bkgd):
         """Volumetric Rendering Function.
 
-        :param rgb: jnp.ndarray(float32), color, [batch_size, num_samples, 3].
-        :param sigma: jnp.ndarray(float32), density, [batch_size, num_samples, 1].
-        :param z_vals: jnp.ndarray(float32), [batch_size, num_samples].
-        :param dirs: jnp.ndarray(float32), [batch_size, 3].
+        :param rgb: jnp.ndarray(float32), color, [num_samples, 3].
+        :param sigma: jnp.ndarray(float32), density, [num_samples, 1].
+        :param z_vals: jnp.ndarray(float32), [num_samples].
+        :param direction: jnp.ndarray(float32), [3].
         :param white_bkgd: bool.
 
-        :return: comp_rgb: jnp.ndarray(float32), [batch_size, 3].
+        :return: comp_rgb: jnp.ndarray(float32), [3].
         """
         eps = 1e-10
         dists = jnp.concatenate([
-            z_vals[Ellipsis, 1:] - z_vals[Ellipsis, :-1],
-            jnp.broadcast_to(1e10, z_vals[Ellipsis, :1].shape)
+            z_vals[1:] - z_vals[:-1],
+            jnp.broadcast_to(1e10, z_vals[:1].shape)
         ], -1)
-        dists = dists * jnp.linalg.norm(dirs[Ellipsis, None, :], axis=-1)
+        dists = dists * jnp.linalg.norm(direction[None, :], axis=-1)
         # Note that we're quietly turning sigma from [..., 0] to [...].
-        alpha = 1.0 - jnp.exp(-sigma[Ellipsis, 0] * dists)
+        alpha = 1.0 - jnp.exp(-sigma[:, 0] * dists)
         accum_prod = jnp.concatenate([
-            jnp.ones_like(alpha[Ellipsis, :1], alpha.dtype),
-            jnp.cumprod(1.0 - alpha[Ellipsis, :-1] + eps, axis=-1)
+            jnp.ones_like(alpha[:1], alpha.dtype),
+            jnp.cumprod(1.0 - alpha[:-1] + eps, axis=-1)
         ],
             axis=-1)
         weights = alpha * accum_prod
 
-        comp_rgb = (weights[Ellipsis, None] * rgb).sum(axis=-2)
+        comp_rgb = (weights[:, None] * rgb).sum(axis=-2)
         depth = (weights * z_vals).sum(axis=-1)
         acc = weights.sum(axis=-1)
         # Equivalent to (but slightly more efficient and stable than):
@@ -727,20 +935,21 @@ class NeRF(INRModule):
         disp = acc / depth
         disp = jnp.where((disp > 0) & (disp < inv_eps) & (acc > eps), disp, inv_eps)
         if white_bkgd:
-            comp_rgb = comp_rgb + (1. - acc[Ellipsis, None])
+            comp_rgb = comp_rgb + (1. - acc[:, None])
         return comp_rgb, disp, acc, weights
+
 
     @staticmethod
     def piecewise_constant_pdf(key, bins, weights, num_samples, randomized):
         """Piecewise-Constant PDF sampling.
 
         :param key: jnp.ndarray(float32), [2,], random number generator.
-        :param bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
-        :param weights: jnp.ndarray(float32), [batch_size, num_bins].
+        :param bins: jnp.ndarray(float32), [num_bins + 1].
+        :param weights: jnp.ndarray(float32), [num_bins].
         :param num_samples: int, the number of samples.
         :param randomized: bool, use randomized samples.
 
-        :return: z_samples: jnp.ndarray(float32), [batch_size, num_samples].
+        :return: z_samples: jnp.ndarray(float32), [num_samples].
         """
         # Pad each weight vector (only if necessary) to bring its sum to `eps`. This
         # avoids NaNs when the input is zeros or small, but has no effect otherwise.
@@ -753,7 +962,7 @@ class NeRF(INRModule):
         # Compute the PDF and CDF for each weight vector, while ensuring that the CDF
         # starts with exactly 0 and ends with exactly 1.
         pdf = weights / weight_sum
-        cdf = jnp.minimum(1, jnp.cumsum(pdf[Ellipsis, :-1], axis=-1))
+        cdf = jnp.minimum(1, jnp.cumsum(pdf[:-1], axis=-1))
         cdf = jnp.concatenate([
             jnp.zeros(list(cdf.shape[:-1]) + [1]), cdf,
             jnp.ones(list(cdf.shape[:-1]) + [1])
@@ -771,13 +980,13 @@ class NeRF(INRModule):
 
         # Identify the location in `cdf` that corresponds to a random sample.
         # The final `True` index in `mask` will be the start of the sampled interval.
-        mask = u[Ellipsis, None, :] >= cdf[Ellipsis, :, None]
+        mask = u[:, None] >= cdf[:, None]
 
         def find_interval(x):
             # Grab the value where `mask` switches from True to False, and vice versa.
             # This approach takes advantage of the fact that `x` is sorted.
-            x0 = jnp.max(jnp.where(mask, x[Ellipsis, None], x[Ellipsis, :1, None]), -2)
-            x1 = jnp.min(jnp.where(~mask, x[Ellipsis, None], x[Ellipsis, -1:, None]), -2)
+            x0 = jnp.max(jnp.where(mask, x[:, None], x[:1, None]), -2)
+            x1 = jnp.min(jnp.where(~mask, x[:, None], x[-1:, None]), -2)
             return x0, x1
 
         bins_g0, bins_g1 = find_interval(bins)
@@ -789,30 +998,25 @@ class NeRF(INRModule):
         # Prevent gradient from backprop-ing through `samples`.
         return lax.stop_gradient(samples)
 
-    @staticmethod
-    def sample_pdf(self, key, bins, weights, origins, directions, z_vals, num_samples,
-                   randomized):
+    def sample_pdf(self, key, bins, weights, origin, direction, z_vals, num_samples, randomized):
         """Hierarchical sampling.
 
         Args:
           key: jnp.ndarray(float32), [2,], random number generator.
-          bins: jnp.ndarray(float32), [batch_size, num_bins + 1].
-          weights: jnp.ndarray(float32), [batch_size, num_bins].
-          origins: jnp.ndarray(float32), [batch_size, 3], ray origins.
-          directions: jnp.ndarray(float32), [batch_size, 3], ray directions.
-          z_vals: jnp.ndarray(float32), [batch_size, num_coarse_samples].
+          bins: jnp.ndarray(float32), [num_bins + 1].
+          weights: jnp.ndarray(float32), [num_bins].
+          origin: jnp.ndarray(float32), [3], ray origin.
+          direction: jnp.ndarray(float32), [3], ray direction.
+          z_vals: jnp.ndarray(float32), [num_coarse_samples].
           num_samples: int, the number of samples.
           randomized: bool, use randomized samples.
 
         Returns:
-          z_vals: jnp.ndarray(float32),
-            [batch_size, num_coarse_samples + num_fine_samples].
-          points: jnp.ndarray(float32),
-            [batch_size, num_coarse_samples + num_fine_samples, 3].
+          z_vals: jnp.ndarray(float32), [num_coarse_samples + num_fine_samples].
+          points: jnp.ndarray(float32), [num_coarse_samples + num_fine_samples, 3].
         """
-        z_samples = self.piecewise_constant_pdf(key, bins, weights, num_samples,
-                                                randomized)
+        z_samples = self.piecewise_constant_pdf(key, bins, weights, num_samples, randomized)
         # Compute united z_vals and sample points
         z_vals = jnp.sort(jnp.concatenate([z_vals, z_samples], axis=-1), axis=-1)
-        coords = self.cast_rays(z_vals, origins, directions)
+        coords = self.cast_ray(z_vals, origin, direction)
         return z_vals, coords
