@@ -1,7 +1,7 @@
 """
 Module with activation functions for inr layers.
 """
-from typing import Union, Tuple
+from typing import Union, Callable
 import jax
 from jax import numpy as jnp
 
@@ -117,6 +117,15 @@ def ada_hosc_activation(x: jax.Array, w0: float) -> jax.Array:
     return jnp.sin(x)*(1 - jnp.square(hosc_activation(x, w0)))
 
 
+def make_finer_pp_version(activation_function:Callable)->Callable:
+    # create a new activation function from the old one
+    return activation_function  # TODO modify
+
+gaus_finer = make_finer_pp_version(unscaled_gaussian_bump)
+
+wave_finer = make_finer_pp_version(real_gabor_wavelet)
+
+
 def quadratic_activation(x: jax.Array, a: float) -> jax.Array:
     """
     Quadratic activation function: 1/(1+(ax)^2)
@@ -150,3 +159,4 @@ def exp_sin_activation(x: jax.Array, a: float) -> jax.Array:
     Exponential sine activation function: exp(sin(ax))
     """
     return jnp.exp(jnp.sin(a*x))
+

@@ -290,7 +290,7 @@ class NeRFBlock(INRModule):
 
         return cls(eqx.nn.Sequential(layers))
 
-    def __call__(self, x, h:Optional[jax.Array]=None, state:Optional[eqx.nn.State]=None, *, key: Optional[jax.Array]=None) -> Union[Tuple[jax.Array, jax.Array], Tuple[jax.Array, jax.Array, eqx.nn.State]]]:
+    def __call__(self, x, h:Optional[jax.Array]=None, state:Optional[eqx.nn.State]=None, *, key: Optional[jax.Array]=None) -> Union[Tuple[jax.Array, jax.Array], Tuple[jax.Array, jax.Array, eqx.nn.State]]:
         """
         Forward pass through the NeRFBlock.
 
