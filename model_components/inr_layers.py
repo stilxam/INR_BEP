@@ -327,6 +327,8 @@ class SinCardLayer(SirenLayer):
         return jnp.sinc(w0 * x)
 
 
+
+
 class AdaHoscLayer(INRLayer):
     """
 
@@ -392,7 +394,6 @@ class AdaHoscLayer(INRLayer):
     def _activation_function(x, w0):
         """
         since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
-        i wrote a bunch of versions cuz i wasnt sure
 
         """
         return act.ada_hosc_activation(x, w0)
@@ -736,6 +737,32 @@ class GaussianINRLayer(INRLayer):
             maxval=1
         )
         return cls(weights, biases, **activation_kwargs)
+
+
+class QuadraticLayer(GaussianINRLayer):
+    _activation_function = staticmethod(act.quadratic_activation)
+    allowed_keys = frozenset({'a'})
+    allows_multiple_weights_and_biases = True
+
+class MultiQuadraticLayer(GaussianINRLayer):
+    _activation_function = staticmethod(act.multi_quadratic_activation)
+    allowed_keys = frozenset({'a'})
+    allows_multiple_weights_and_biases = True
+
+class LaplacianLayer(GaussianINRLayer):
+    _activation_function = staticmethod(act.laplacian_activation)
+    allowed_keys = frozenset({'a'})
+    allows_multiple_weights_and_biases = True
+
+class SuperGaussianLayer(GaussianINRLayer):
+    _activation_function = staticmethod(act.super_gaussian_activation)
+    allowed_keys = frozenset({'a', "b"})
+    allows_multiple_weights_and_biases = True
+
+class ExpSinLayer(GaussianINRLayer):
+    _activation_function = staticmethod(act.exp_sin_activation)
+    allowed_keys = frozenset({'a'})
+    allows_multiple_weights_and_biases = True
 
 
 class FinerLayer(INRLayer):

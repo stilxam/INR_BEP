@@ -2,19 +2,17 @@ import pdb
 import traceback
 from pathlib import Path
 
+import common_jax_utils as cju
+import equinox as eqx
 import jax
+import matplotlib.pyplot as plt
+import neural_tangents as nt
+from common_dl_utils.config_creation import Config
 from jax import jit
 from jax import numpy as jnp
-import optax
-import wandb
-import equinox as eqx
-from inr_utils.images import make_lin_grid
 
-from common_dl_utils.config_creation import Config
-import common_jax_utils as cju
-import neural_tangents as nt
-import matplotlib.pyplot as plt
-import matplotlib
+import wandb
+from inr_utils.images import make_lin_grid
 
 plt.rcParams.update({'font.size': 25})
 # run on cpu
@@ -103,25 +101,56 @@ def get_nkt_fns(apply_fn):
 
 def decompose_ntk(ntk):
     eigvals, eigvecs = jnp.linalg.eigh(ntk)
-    rescaled_eigvals = eigvals / jnp.min(jnp.abs(eigvals))
-    return eigvals, eigvecs, rescaled_eigvals
+    rescaled_eigvals = jnp.flipud(eigvals) / jnp.min(jnp.abs(eigvals))
+    return jnp.flipud(eigvals), jnp.flipud(eigvecs.T), rescaled_eigvals
 
 
-def plot_eigvals(Ks):
+def plot_kernels(Ks, names):
     n_models = len(Ks.keys())
-    fig, ax = plt.subplots(n_models, 2, figsize=(25, 10 * n_models))
+    fig, ax = plt.subplots(n_models, 1, figsize=(10, 10 * n_models), sharex=True, sharey=True)
+
+    for i, (model_name, K) in enumerate(Ks.items()):
+        cax = ax[i].imshow(K, cmap='plasma')
+        fig.colorbar(cax, ax=ax[i])
+        ax[i].set_title(f"{names[i]}")
+    plt.axis("off")
+    fig.suptitle("Empirical Neural Tangent Kernel")
+    if not Path.cwd().joinpath("results", "plots").exists():
+        Path.cwd().joinpath("results", "plots").mkdir(parents=True)
+
+    plt.savefig(Path.cwd().joinpath("results", "plots", "ntks.png"))
+    plt.show()
+
+
+def single_plot_kernels(Ks, names):
+    if not Path.cwd().joinpath("results", "plots").exists():
+        Path.cwd().joinpath("results", "plots").mkdir(parents=True)
+
+    for i, (model_name, K) in enumerate(Ks.items()):
+        fig, ax = plt.subplots(figsize=(10, 10))
+        cax = ax.imshow(K, cmap='plasma')
+        fig.colorbar(cax, ax=ax)
+        ax.set_title(f"{names[i]}")
+        plt.axis("off")
+        fig.suptitle(f"Empirical Neural Tangent Kernel \n {names[i]}")
+
+        plt.savefig(Path.cwd().joinpath("results", "plots", f"ntk_{model_name}.png"))
+        plt.show()
+
+
+def plot_eigvals(Ks, names):
+    fig, ax = plt.subplots(1, 1, figsize=(10, 12))
 
     for i, (model_name, K) in enumerate(Ks.items()):
         eigvals, eigvecs, rescaled_eigvals = decompose_ntk(K)
-        # ax[i, 0].imshow(K, cmap='plasma')
-        cax = ax[i, 0].imshow(K, cmap='plasma')
-        fig.colorbar(cax, ax=ax[i, 0])
-        ax[i, 0].set_title(f"{model_name.split('.')[1]} NTK")
-        ax[i, 1].hist(rescaled_eigvals)
-        ax[i, 1].set_xscale('log')
-        ax[i, 1].set_title(f"{model_name.split('.')[1]} NTK Rescaled Eigenvalues")
 
-    fig.suptitle("Neural Tangent Kernels and Rescaled Eigenvalues")
+        ax.plot(jnp.log(rescaled_eigvals), label=f"{names[i]}", alpha=0.5)
+        ax.set_title("Rescaled Eigenvalues")
+        ax.set_xlabel("Eigenvalue index")
+        ax.set_ylabel("$\log(\lambda_i / \lambda_{min})$")
+        ax.legend()
+
+    fig.suptitle("Eigenvalues of NTKs")
 
     path = Path.cwd().joinpath("results", "plots")
     if not path.exists():
@@ -132,112 +161,119 @@ def plot_eigvals(Ks):
     plt.show()
 
 
-def format_plot(x=None, y=None):
-    ax = plt.gca()
-    if x is not None:
-        plt.xlabel(x, fontsize=20)
-    if y is not None:
-        plt.ylabel(y, fontsize=20)
-
-
-def plot_fn(train, test, *fs):
-    train_xs, train_ys = train
-
-    plt.plot(train_xs, train_ys, 'ro', markersize=10, label='train')
-
-    if test != None:
-        test_xs, test_ys = test
-        plt.plot(test_xs, test_ys, 'k--', linewidth=3, label='$f(x)$')
-
-        for f in fs:
-            plt.plot(test_xs, f(test_xs), '-', linewidth=3)
-
-    plt.xlim([-jnp.pi, jnp.pi])
-    plt.ylim([-1.5, 1.5])
-
-    format_plot('$x$', '$f$')
-
-
-def fuck_around_nngp(n=10, in_channels=2):
-    setup = {
-        "layer_type":
-            "inr_layers.SirenLayer",
-        "activation_kwargs":
-            {"w0": 25},
+def get_sweep_configuration():
+    sweep_config = {
+        'method': 'grid',
+        'name': 'ntk-layer-sweep',
+        'metric': {'name': 'ntk_condition_number', 'goal': 'minimize'},
+        'parameters': {
+            'layer_type': {
+                'values': [
+                    "inr_layers.SirenLayer",
+                    "inr_layers.ComplexWIRE",
+                    "inr_layers.RealWIRE",
+                    "inr_layers.HoscLayer",
+                    "inr_layers.SinCardLayer",
+                    "inr_layers.GaussianINRLayer",
+                    "inr_layers.QuadraticLayer",
+                    "inr_layers.MultiQuadraticLayer",
+                    "inr_layers.LaplacianLayer",
+                    "inr_layers.SuperGaussianLayer",
+                    "inr_layers.ExpSinLayer"
+                ]
+            },
+            'param_scale': {'values': [0.1, 1.0, 5.0, 10.0, 17.5, 25.0, 32.5, 50]}
+        }
     }
-    config = get_config(setup["layer_type"], setup["activation_kwargs"])
+    return sweep_config
 
-    xs = jnp.linspace(-jnp.pi, jnp.pi, num=100).reshape((-1,))
-    ys = jnp.sin(xs)
 
+def get_activation_kwargs(layer_type, param_scale):
+    """Map layer type to appropriate activation kwargs with the given scale parameter"""
+    if layer_type in ["inr_layers.SirenLayer"]:
+        return {"w0": param_scale}
+    elif layer_type in ["inr_layers.ComplexWIRE", "inr_layers.RealWIRE"]:
+        return {"w0": param_scale, "s0": param_scale * 0.6}  # keeping s0 proportional to w0
+    elif layer_type in ["inr_layers.HoscLayer", "inr_layers.SinCardLayer"]:
+        return {"w0": param_scale}
+    elif layer_type == "inr_layers.GaussianINRLayer":
+        return {"inverse_scale": 1.0 / param_scale}
+    elif layer_type == "inr_layers.SuperGaussianLayer":
+        return {"a": param_scale, "b": param_scale}
+    else:  # Quadratic, MultiQuadratic, Laplacian, ExpSin
+        return {"a": param_scale}
+
+
+def layer_name_to_title(layer_name) -> str:
+    dct = {
+        "inr_layers.SirenLayer": "SIREN",
+        "inr_layers.ComplexWIRE": "Complex WIRE",
+        "inr_layers.RealWIRE": "Real WIRE",
+        "inr_layers.HoscLayer": "HOSC",
+        "inr_layers.SinCardLayer": "Sine Cardinal",
+        "inr_layers.GaussianINRLayer": "Gaussian Bump",
+        "inr_layers.QuadraticLayer": "Quadratic",
+        "inr_layers.MultiQuadraticLayer": "Multi-Quadratic",
+        "inr_layers.LaplacianLayer": "Laplacian",
+        "inr_layers.SuperGaussianLayer": "Super Gaussian",
+        "inr_layers.ExpSinLayer": "Exponential Sine"
+    }
+    return dct[layer_name]
+
+
+def main_sweep():
+    wandb.init()
+
+    # Access hyperparameters from wandb
+    layer_type = wandb.config.layer_type
+    param_scale = wandb.config.param_scale
+
+    # Get appropriate activation kwargs for this layer type
+    activation_kwargs = get_activation_kwargs(layer_type, param_scale)
+
+    n = 10  # grid size
+    in_channels = 2
+
+    # Setup and compute NTK
+    config = get_config(layer_type, activation_kwargs)
     init_fn, apply_fn = make_init_apply(config)
     params = init_fn()
+    flattened_locations = make_lin_grid(0., 1., (n, n)).reshape(-1, in_channels)
 
     kwargs = dict(
         f=apply_fn,
-        diagonal_axes=(0,)
+        trace_axes=(),
+        vmap_axes=0
     )
+    ntvp = jit(nt.empirical_ntk_fn(**kwargs, implementation=nt.NtkImplementation.NTK_VECTOR_PRODUCTS))
+    NTK = ntvp(flattened_locations, flattened_locations, params)
 
-    kernel_fn = nt.empirical_kernel_fn(apply_fn)
-    kernel_fn = jit(kernel_fn, static_argnames='get')
-    k_train_train = kernel_fn(xs, xs, params)
+    # Compute metrics
+    eigvals, _, _ = decompose_ntk(NTK)
+    condition_number = jnp.abs(eigvals[0] / eigvals[-1])
 
-    predict_fn = nt.predict.gradient_descent_mse(kernel_fn, xs, ys, diag_reg=1e-4)
-    nngp_mean, nngp_covariance = predict_fn(x_test=xs, get='nngp',
-                                            compute_cov=True)
+    # Log metrics
+    wandb.log({
+        "ntk_condition_number": float(condition_number),
+        "max_eigenvalue": float(eigvals[0]),
+        "min_eigenvalue": float(eigvals[-1]),
+        "eigvals": wandb.Histogram(eigvals),
+        "eigenvalues": eigvals
+    })
 
-    nngp_mean = nngp_mean.reshape((-1,))
-    nngp_std = jnp.sqrt(jnp.diag(nngp_covariance))
-
-
-    plt.plot(xs, nngp_mean, "r-", linewidth=3)
-    plt.fill_between(
-        jnp.reshape(xs, (-1)),
-        nngp_mean - 2 * nngp_std,
-        nngp_mean + 2 * nngp_std,
-        color='red', alpha=0.2)
-
-    plt.xlim([-jnp.pi, jnp.pi])
-    plt.ylim([-1.5, 1.5])
-    plt.show()
-
-
-def main(n=10, in_channels=2, plot=True):
-    setups = {
-        "layer_type": [
-            "inr_layers.SirenLayer",
-            "inr_layers.ComplexWIRE",
-            # "inr_layers.RealWIRE",
-            "inr_layers.GaussianINRLayer",
-
-        ],
-        "activation_kwargs": [
-            {"w0": 25.},
-            {"w0": 25., "s0": 15},
-            # {"w0": 25., "s0": 15},
-            {"inverse_scale": 0.1},
-        ],
-    }
-
-    Ks = {}
-
-    flattened_locations = make_lin_grid(0., 1., (n, n)).reshape(-1, in_channels)
-
-    for layer_type, activation_kwargs in zip(setups["layer_type"], setups["activation_kwargs"]):
-        config = get_config(layer_type, activation_kwargs)
-        init_fn, apply_fn = make_init_apply(config)
-        params = init_fn()
-
-        ntjc, ntvp = get_nkt_fns(apply_fn)
-
-        # NTK_jacobian_contraction = ntjc(flattened_locations, flattened_locations, params)
-        NTK_vector_products = ntvp(flattened_locations, flattened_locations, params)
-
-        Ks[f"{layer_type}_{activation_kwargs}"] = NTK_vector_products
-
-    if plot:
-        plot_eigvals(Ks)
+    # Save NTK visualization
+    fig, ax = plt.subplots(figsize=(10, 10))
+    cax = ax.imshow(NTK, cmap='plasma')
+    fig.colorbar(cax, ax=ax)
+    ax.set_title(f"NTK for {layer_name_to_title(layer_type)}\n {activation_kwargs}")
+    plt.axis("off")
+    plt.savefig(
+        Path.cwd().joinpath("results", "plots", f"ntk_{layer_name_to_title(layer_type)}_{activation_kwargs}.png"))
+    wandb.log({"ntk_plot": wandb.Image(fig)})
+    plt.close()
 
 
 if __name__ == '__main__':
-    main()
+    sweep_config = get_sweep_configuration()
+    sweep_id = wandb.sweep(sweep_config, project="ntk-analysis")
+    wandb.agent(sweep_id, main_sweep)

@@ -39,7 +39,15 @@ def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Arra
     :return: a `jax.Array` with the same shape as x[0] or x[1]
     """
     omega = w0 * x[0]
-    scale = s0 * x[1]
+    # if isinstance(x, tuple):
+    #     scale = s0 * x[1]
+    # else:
+    #     scale = s0 * x[0]
+
+    try:
+        scale = s0 * x[1]
+    except:
+        scale = s0 * x[0]
     return jnp.cos(omega) * jnp.exp(-jnp.square(scale))
 
 
