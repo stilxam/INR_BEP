@@ -13,3 +13,5 @@ wandb
 /synthetic_scenes
 /example_data/nerfdata
 /synthetic_scenes.zip
+/.vscode/settings.json
+/.venv/
