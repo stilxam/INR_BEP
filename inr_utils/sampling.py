@@ -171,7 +171,7 @@ class NeRFSyntheticScenesSampler(Sampler):  # NB this stores all views of the ob
 
 
     def __init__(self, split:str, name:str, batch_size, poses_per_batch, base_path:str="./synthetic_scenes", size_limit=-1):
-        folder = f"{base_path}/{split}/{name}"
+        folder = f"{base_path}/{name}/{split}"
         if not os.path.exists(folder):
             raise ValueError(f"Following folder does not exist: {folder}")
         if batch_size % poses_per_batch:

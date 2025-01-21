@@ -195,6 +195,7 @@ class NeRFBlock(INRModule):
 
     net: eqx.Module
 
+    @property
     def is_stateful(self):
         return self.net.is_stateful()
 
@@ -320,6 +321,10 @@ class NeRFComponent(INRModule):
 
     conditional_pos_enc: Optional[Union[INRLayer, PositionalEncodingLayer]] = None
     condition: Optional[eqx.Module] = None
+
+    @property
+    def is_stateful(self):
+        return self.blocks.is_stateful()
 
     @classmethod
     def from_config(
@@ -615,6 +620,10 @@ class NeRF(INRModule):
     white_bkgd: bool
     lindisp: bool
 
+    @property
+    def is_stateful(self):
+        return self.coarse_model.is_stateful() or self.fine_model.is_stateful()
+
 
     @classmethod
     def from_config(cls,
@@ -692,81 +701,60 @@ class NeRF(INRModule):
 
         )
 
-    def __call__(self, ray, randomized, state: Optional[eqx.nn.State] = None, key: jax.Array = jnp.array([0, 0]))->Tuple[jax.Array, jax.Array, Optional[eqx.nn.State]]:
+
+    def __call__(self, ray_origins, ray_directions, randomized, state: Optional[eqx.nn.State] = None, *, key: jax.Array = jnp.array([0, 0])):
         """
-        Perform the forward pass of the NeRF model.
-
-        The forward pass involves the following steps:
-
-        1. **Sample Along Ray**:
-            - The method `sample_along_ray` is called to generate sample points along the ray.
-            - The sample points are determined based on the number of coarse samples, near and far plane distances, and whether to use linear disparity or randomized sampling.
-            - The output is a set of z-values and corresponding sample points.
-
-        2. **Coarse Model Inference**:
-            - The coarse model processes the sampled points to predict raw RGB values and densities (sigma).
-            - If the model is stateful, the state is updated during this process.
-            - The raw sigma values are regularized by adding Gaussian noise if required.
-            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
-
-        3. **Volumetric Rendering**:
-            - The method `volumetric_rendering` is called to perform volumetric rendering using the predicted RGB and sigma values.
-            - This involves computing the accumulated weights, composite RGB values, and disparity map.
-            - The output is a tuple containing the composite RGB values, disparity map, and accumulated weights.
-
-        4. **Hierarchical Sampling**:
-            - If fine sampling is enabled, hierarchical sampling is performed based on the coarse predictions.
-            - The method `sample_pdf` is called to generate additional sample points based on the weights from the coarse model.
-            - The fine model processes these additional sample points to predict refined RGB values and densities.
-            - The raw sigma values are regularized by adding Gaussian noise if required.
-            - The RGB values are passed through a sigmoid activation function, and the sigma values are passed through a ReLU activation function.
-            - Volumetric rendering is performed again using the refined predictions.
-
-        5. **Return Results**:
-            - The method returns the composite RGB values, disparity map, and accumulated weights for both coarse and fine models.
-            - If the model is stateful, the updated state is also returned.
-
+        Forward pass through the NeRF model.
+        
         Args:
-            ray: The input ray containing origins, directions, and view directions.
-            randomized: Boolean indicating whether to use randomized sampling.
-            state: Optional state for stateful layers.
-            key: Random number generator key.
-
+            ray_origins: jnp.ndarray(float32), shape [batch_size, 3], ray origins
+            ray_directions: jnp.ndarray(float32), shape [batch_size, 3], ray directions
+            randomized: bool, whether to use randomized sampling
+            state: Optional state for stateful layers
+            key: Random number generator key
+        
         Returns:
-            A tuple containing the rendered RGB values, disparity map, accumulated weights, and optionally the updated state.
+            If not stateful:
+                List of tuples [(coarse_rgb, coarse_disp, coarse_acc), (fine_rgb, fine_disp, fine_acc)]
+            If stateful:
+                Same list of tuples plus updated state
         """
-
         key_gen = key_generator(key)
-
-        z_vals, sample = self.sample_along_ray(
+    
+        # Normalize ray directions
+        viewdirs = ray_directions / jnp.linalg.norm(ray_directions, axis=-1, keepdims=True)
+    
+        # Sample along rays
+        z_vals, samples = self.sample_along_ray(
             next(key_gen),
-            ray.origins,
-            ray.directions,
+            ray_origins,  # [batch_size, 3]
+            ray_directions,  # [batch_size, 3] 
             self.num_coarse_samples,
             self.near,
             self.far,
             randomized,
             self.lindisp,
         )
+
         new_state = state
 
+        # Run coarse model
         if self.use_viewdirs:
             if self.coarse_model.is_stateful() and state is not None:
                 substate = state.substate(self.coarse_model)
-                raw_rgb, raw_sigma, substate = self.coarse_model(sample, ray.viewdirs, state=substate)
+                raw_rgb, raw_sigma, substate = self.coarse_model(samples, viewdirs, state=substate)
                 new_state = new_state.update(substate)
             else:
-                raw_rgb, raw_sigma = self.coarse_model(sample, ray.viewdirs)
+                raw_rgb, raw_sigma = self.coarse_model(samples, viewdirs)
         else:
             if self.coarse_model.is_stateful() and state is not None:
                 substate = state.substate(self.coarse_model)
-                raw_rgb, raw_sigma, substate = self.coarse_model(sample, state=substate)
+                raw_rgb, raw_sigma, substate = self.coarse_model(samples, state=substate)
                 new_state = new_state.update(substate)
             else:
-                raw_rgb, raw_sigma = self.coarse_model(sample)
+                raw_rgb, raw_sigma = self.coarse_model(samples)
 
-
-        # Add noises to regularize the density predictions if needed
+        # Add noise to regularize the density predictions if needed
         raw_sigma = self.add_gaussian_noise(
             next(key_gen),
             raw_sigma,
@@ -776,12 +764,12 @@ class NeRF(INRModule):
         rgb = jax.nn.sigmoid(raw_rgb)
         sigma = jax.nn.relu(raw_sigma)
 
-        # Volumetric rendering.
+        # Volumetric rendering
         comp_rgb, disp, acc, weights = self.volumetric_rendering(
             rgb,
             sigma,
             z_vals,
-            ray.directions,
+            ray_directions,
             white_bkgd=self.white_bkgd,
         )
         ret = [
@@ -795,20 +783,21 @@ class NeRF(INRModule):
                 next(key_gen),
                 z_vals_mid,
                 weights[..., 1:-1],
-                ray.origins,
-                ray.directions,
+                ray_origins,
+                ray_directions,
                 z_vals,
                 self.num_fine_samples,
                 randomized,
             )
-            # Construct the "fine" MLP.
+
+            # Run fine model
             if self.use_viewdirs:
                 if self.fine_model.is_stateful() and state is not None:
                     substate = state.substate(self.fine_model)
-                    raw_rgb, raw_sigma, substate = self.fine_model(samples, ray.viewdirs, state=substate)
+                    raw_rgb, raw_sigma, substate = self.fine_model(samples, viewdirs, state=substate)
                     new_state = new_state.update(substate)
                 else:
-                    raw_rgb, raw_sigma = self.fine_model(samples, ray.viewdirs)
+                    raw_rgb, raw_sigma = self.fine_model(samples, viewdirs)
             else:
                 if self.fine_model.is_stateful() and state is not None:
                     substate = state.substate(self.fine_model)
@@ -816,7 +805,6 @@ class NeRF(INRModule):
                     new_state = new_state.update(substate)
                 else:
                     raw_rgb, raw_sigma = self.fine_model(samples)
-
 
             raw_sigma = self.add_gaussian_noise(
                 next(key_gen),
@@ -830,11 +818,10 @@ class NeRF(INRModule):
                 rgb,
                 sigma,
                 z_vals,
-                ray.directions,
+                ray_directions,
                 white_bkgd=self.white_bkgd,
             )
             ret.append((comp_rgb, disp, acc))
-
 
         if self.coarse_model.is_stateful() or self.fine_model.is_stateful():
             return ret, new_state
