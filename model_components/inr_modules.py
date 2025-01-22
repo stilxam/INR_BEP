@@ -305,7 +305,7 @@ class NeRFBlock(INRModule):
             Tuple[jax.Array, jax.Array]: Output array and updated hidden state.
         """
         inp = h if h is not None else x
-        if self.is_stateful():
+        if self.is_stateful:
             h_new, new_state = self.net(inp, state)
             return x, jnp.concatenate([x, h_new], axis=-1), new_state
         h_new = self.net(inp)
@@ -324,7 +324,7 @@ class NeRFComponent(INRModule):
 
     @property
     def is_stateful(self):
-        return self.blocks.is_stateful()
+        return self.blocks.is_stateful
 
     @classmethod
     def from_config(
@@ -383,8 +383,10 @@ class NeRFComponent(INRModule):
                                             **initialization_scheme_kwargs)
 
         if positional_encoding_layer is not None:
-            block_pos_enc = positional_encoding_layer
-            first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
+            block_pos_enc = positional_encoding_layer.from_config(
+                num_frequencies=pos_coords,
+            )
+            first_hidden_size = block_pos_enc.out_size(in_size=pos_coords)
         else:
             block_pos_enc= initialization_scheme(
                 in_size=pos_coords,
@@ -487,7 +489,7 @@ class NeRFComponent(INRModule):
         if condition_width and condition_length is not None:
             if positional_encoding_layer is not None:
                 condition_pos_enc = positional_encoding_layer
-                condition_first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords)
+                condition_first_hidden_size = positional_encoding_layer.out_size(in_size=pos_coords) # TODO: check if this is correct
             else:
                 conditional_pos_enc = initialization_scheme(
                     in_size=pos_coords,
@@ -575,34 +577,35 @@ class NeRFComponent(INRModule):
         # return raw_rgb, raw_sigma
         #
         h = position
-        if self.block_pos_enc is not None:
-            h = self.block_pos_enc(h)
+
+        
+        h = self.block_pos_enc(h, key=key)
 
         new_state = state
 
         for component in self.blocks:
-            if self.is_stateful() and state is not None:
+            if self.is_stateful and state is not None:
                 substate = state.substate(component)
-                inp, h, substate = component(h, state=substate)
+                inp, h, substate = component(h, state=substate, key=key)
                 new_state = new_state.update(substate)
             else:
-                inp, h = component(h)
+                inp, h = component(h, key=key)
 
-        raw_sigma = self.to_sigma(h)
+        raw_sigma = self.to_sigma(h, key=key)
 
         if self.condition is not None:
             h_view = self.conditional_pos_enc(view_angle)
             h = jnp.concatenate([h, h_view], axis=-1)
-            if self.is_stateful() and state is not None:
+            if self.is_stateful and state is not None:
                 substate = state.substate(self.condition)
-                h = self.condition(h, state=substate)
+                h = self.condition(h, state=substate, key=key)
                 new_state = new_state.update(substate)
             else:
-                h = self.condition(h)
+                h = self.condition(h, key=key)
 
-        raw_rgb = self.to_rgb(h)
+        raw_rgb = self.to_rgb(h, key=key)
 
-        if self.is_stateful() and state is not None:
+        if self.is_stateful and state is not None:
             return raw_rgb, raw_sigma, new_state
         return raw_rgb, raw_sigma
 
@@ -622,7 +625,7 @@ class NeRF(INRModule):
 
     @property
     def is_stateful(self):
-        return self.coarse_model.is_stateful() or self.fine_model.is_stateful()
+        return self.coarse_model.is_stateful or self.fine_model.is_stateful
 
 
     @classmethod
@@ -740,14 +743,14 @@ class NeRF(INRModule):
 
         # Run coarse model
         if self.use_viewdirs:
-            if self.coarse_model.is_stateful() and state is not None:
+            if self.coarse_model.is_stateful and state is not None:
                 substate = state.substate(self.coarse_model)
                 raw_rgb, raw_sigma, substate = self.coarse_model(samples, viewdirs, state=substate)
                 new_state = new_state.update(substate)
             else:
                 raw_rgb, raw_sigma = self.coarse_model(samples, viewdirs)
         else:
-            if self.coarse_model.is_stateful() and state is not None:
+            if self.coarse_model.is_stateful and state is not None:
                 substate = state.substate(self.coarse_model)
                 raw_rgb, raw_sigma, substate = self.coarse_model(samples, state=substate)
                 new_state = new_state.update(substate)
@@ -832,7 +835,15 @@ class NeRF(INRModule):
         """
         Cast ray through pixel positions.
         """
-        return origin[None, :] + z_vals[:, None] * direction[ None, :]
+        # return origin[None, :] + z_vals[:, None] * direction[ None, :]
+        origin = origin[None, :, :]  # [1, batch_size, 3]
+        direction = direction[None, :, :]  # [1, batch_size, 3]
+
+        # Add batch and xyz dimensions to z_vals
+        z_vals = z_vals[:, None, None]  # [num_samples, 1, 1]
+
+        return origin + z_vals * direction
+
 
     def sample_along_ray(self, key, origin, direction, num_samples, near, far, randomized, lindisp):
         """

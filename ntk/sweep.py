@@ -10,7 +10,7 @@ from inr_utils.images import make_lin_grid
 
 from .analysis import analyze_fft, analyze_fft_spectrum, decompose_ntk, get_NTK_ntvp
 from .config import get_config, get_activation_kwargs
-from .data import get_flattened_locations
+from .data import get_flattened_locations, get_nerf_flattened
 from .models import make_init_apply
 from .visualization import plot_ntk_kernels, plot_fft_spectrum
 from common_jax_utils import key_generator
