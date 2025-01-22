@@ -185,7 +185,7 @@ class ContinuousImage(Module):
     continuous_image: Callable
     scaled: bool
 
-    def __init__(self, image:Union[jax.Array, str], scale_to_01:bool, interpolation_method:Callable):
+    def __init__(self, image:Union[jax.Array, str], scale_to_01:bool, interpolation_method:Callable, check_dimensions:bool=True):
         """ 
         :parameter image: either a path to an image or an array
             Note that this image should have the channels last
@@ -196,6 +196,8 @@ class ContinuousImage(Module):
         """
         if isinstance(image, str):
             image = load_image_as_array(image)
+        if check_dimensions and len(image.shape)<3:
+            image = image[..., None]
         self.underlying_image = image
         if scale_to_01:
             self.continuous_image = scale_continuous_image_to_01(

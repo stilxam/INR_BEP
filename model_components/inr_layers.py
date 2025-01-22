@@ -623,16 +623,20 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
 class IntegerLatticeEncoding(PositionalEncodingLayer):
     # TODO Simon: we need to allow for a scheduler in the train step to increase alpha.
     _is_learnable = False
+    _min_alpha_state_index: eqx.nn.StateIndex
+    _alpha_state_index: eqx.nn.StateIndex
+    _max_alpha_state_index: eqx.nn.StateIndex
 
     def is_stateful(self):
         return True
     
     def __init__(self, embedding_matrix):
-        init_alpha = 0. 
-        # whole matrix becomes zeros for alpha <= 1
-        # is there a problem thet can arise?
-        # paper says values for alpha get incremented starting from 0
+        init_alpha = 1.1 
+        max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
+        
+        self._min_alpha_state_index = eqx.nn.StateIndex(init_alpha)
         self._alpha_state_index = eqx.nn.StateIndex(init_alpha)
+        self._max_alpha_state_index = eqx.nn.StateIndex(max_alpha)
         super().__init__(embedding_matrix)
 
     @classmethod
@@ -678,7 +682,8 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
         embedding_matrix = self.embedding_matrix
 
         current_alpha = state.get(self._alpha_state_index)
-        max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
+        max_alpha = state.get(self._max_alpha_state_index)
+        
         current_alpha = jnp.where(current_alpha < max_alpha, current_alpha, max_alpha)
         
         def weigh_B(B, alpha):
@@ -761,11 +766,30 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
 
     def out_size(self, in_size:int)->int:
         return 2*self.embedding_matrix.shape[0]*in_size
-    
-    def __call__(self, x:jax.Array, state: eqx.nn.State, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
-        embedding_matrix = self.weigh_embedding_matrix(state)
-        # TODO write your call to create `encoding`
-        encoding = x
 
+    # not sure if that's a static method
+    # @staticmethod
+    def update_state(self, state, nr_increments):
+
+        current_alpha = state.get(self._alpha_state_index)
+        init_alpha = state.get(self._min_alpha_state_index)
+        max_alpha = state.get(self._max_alpha_state_index)
+
+        increment_size = (max_alpha - init_alpha) / nr_increments
+        current_alpha = jnp.minimum(current_alpha + increment_size, max_alpha)
+
+        return state.set(self._alpha_state_index, current_alpha)
+        
+    def __call__(self, x:jax.Array, state: eqx.nn.State, nr_increments: int, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+        
+        embedding_matrix = self.weigh_embedding_matrix(state)
+        # not sure if to first get embedding matrix, then update state
+        state = self.update_state(state, nr_increments)
+
+        # not certain why we flatten
+        encoding = jnp.concatenate([jnp.cos(2*jnp.pi*(x @ embedding_matrix.T)), 
+                                    jnp.sin(2*jnp.pi*(x @ embedding_matrix.T))], 
+                                    axis=-1).flatten()
+        
         return encoding, state
     
