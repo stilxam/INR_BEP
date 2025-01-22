@@ -115,51 +115,46 @@ def finer_scheme(in_size: int, out_size: int, w0: float, bias_k:float, num_split
         maxval=k
     )
     
-
     return cls(weights * scale_factor, biases * scale_factor, **activation_kwargs)
 
 
-#chande to within init scheme add scale factor    
-# def scale_initialization_scheme(init_scheme: Callable, scale_factor: float, *args, **kwargs) -> Callable:
-#     """Creates a scaled version of an initialization scheme.
+def standard_scheme(in_size: int, out_size: int, num_splits=1, *, layer_type: type[INRLayer], key: jax.Array, is_first_layer: bool, scale_factor:float=1.0, **additional_layer_kwargs):
+    """
+    Standard initialization scheme for linear layers, following the Equinox implementation.
+    Uses Glorot/Xavier uniform initialization for weights and zeros for biases.
+
+    :param in_size: Size of the input to the layer.
+    :param out_size: Size of the output of the layer.
+    :param num_splits: Number of weight matrices and bias vectors (ignored here).
+    :param layer_type: Type of INRLayer to initialize.
+    :param key: PRNG key for randomness.
+    :param is_first_layer: Indicates whether this is the first layer in the network.
+    :param scale_factor: Optional scaling factor for weights and biases.
+    :param additional_layer_kwargs: Additional arguments for the INRLayer.
+
+    :return: An instance of layer_type initialized with standard scheme.
+    """
+    cls = layer_type
+    activation_kwargs = cls._check_keys({})
     
-#     :param init_scheme: The initialization scheme to scale
-#     :param scale_factor: Factor to scale the weights and biases by
-#     :param args: Positional arguments to pass to the initialization scheme
-#     :param kwargs: Keyword arguments to pass to the initialization scheme
-#     :return: A new initialization scheme that scales parameters based on the scheme type
-#     """
-#     # Define which parameters should be scaled for each initialization scheme
-#     SCALABLE_PARAMS = {
-#         "siren_scheme": ["w0"],
-#         "finer_scheme": ["w0", "bias_k"],
-#         "gaussian_scheme": ["inverse_scale"],
-#         # Add new schemes and their scalable parameters here
-#     }
+    w_key, b_key = jax.random.split(key)
 
-#     # Get initialization scheme name from the function
-#     scheme_name = init_scheme.__name__
+    # Glorot/Xavier uniform initialization for weights
+    weight_bound = jnp.sqrt(6 / (in_size + out_size))
+    weights = jax.random.uniform(
+        key=w_key,
+        shape=(out_size, in_size),
+        minval=-weight_bound,
+        maxval=weight_bound
+    )
 
-#     # Get list of parameters that should be scaled for this scheme
-#     scalable_params = SCALABLE_PARAMS.get(scheme_name, [])
-
-#     # Scale only the designated parameters if they exist in kwargs
-#     for param in scalable_params:
-#         if param in kwargs:
-#             kwargs[param] *= scale_factor
-
-#     # Return initialization with scaled parameters
-#     return init_scheme(*args, **kwargs)
-
-# # Scale parameters based on initialization scheme type
-#     if scheme_name == "siren_scheme":
-#         if 'w0' in kwargs:
-#             kwargs['w0'] *= scale_factor
-#     elif scheme_name == "finer_scheme":
-#         if 'w0' in kwargs:
-#             kwargs['w0'] *= scale_factor
-#         if 'bias_k' in kwargs:
-#             kwargs['bias_k'] *= scale_factor
-#     elif scheme_name == "gaussian_scheme":
-#         if 'inverse_scale' in kwargs:
-#             kwargs['inverse_scale'] *= scale_factor
+    # Use same initialization scheme as Equinox for biases
+    bias_bound = 1 / jnp.sqrt(in_size)
+    biases = jax.random.uniform(
+        key=b_key,
+        shape=(out_size,),
+        minval=-bias_bound,
+        maxval=bias_bound
+    )
+    
+    return cls(weights * scale_factor, biases * scale_factor, **activation_kwargs)

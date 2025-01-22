@@ -1,7 +1,7 @@
 """ 
 Module with activation functions for inr layers.
 """
-from typing import Union, Tuple
+from typing import Union, Callable
 import jax
 from jax import numpy as jnp
 
@@ -100,3 +100,34 @@ def finer_activation(x, w0):
     :return: output array after applying variable-periodic function
     """
     return jnp.sin((jnp.abs(x) + 1) * w0 * x)
+
+def make_finer_pp(activation_function:Callable)->Callable:
+    """
+    Make a FINER++ activation function from a base activation function.
+    Applies the FINER++ transformations according to Section 4.1 of the FINER paper:
+    - For sine: sin(ω0(|x| + 1)x)
+    - For Gaussian: exp(-s0^2(|x| + 1)^2x^2) 
+    - For Gabor wavelet: cos(ω0(|x| + 1)x[0])exp(-s0^2(|x| + 1)^2x[1]^2)
+
+    :param activation_function: Base activation function to transform (sine, gaussian or gabor)
+    :return: FINER++ version of the activation function
+    """
+    def finer_pp_activation(*x: jax.Array, **kwargs) -> jax.Array:
+        if activation_function == unscaled_gaussian_bump:
+            # For Gaussian, transform the input with (|x| + 1)x
+            transformed_x = [(jnp.abs(xi) + 1) * xi for xi in x]
+            return activation_function(*transformed_x, **kwargs)
+            
+        elif activation_function == real_gabor_wavelet:
+            # For Gabor, transform x[0] with (|x| + 1)x for frequency
+            # and x[1] with (|x| + 1)x for scale
+            x0_transformed = (jnp.abs(x[0]) + 1) * x[0]
+            x1_transformed = (jnp.abs(x[1]) + 1) * x[1]
+            return activation_function((x0_transformed, x1_transformed), **kwargs)
+            
+        else:
+            # For other functions (e.g. sine), apply standard transform
+            transformed_x = [(jnp.abs(xi) + 1) * xi for xi in x]
+            return activation_function(*transformed_x, **kwargs)
+
+    return finer_pp_activation

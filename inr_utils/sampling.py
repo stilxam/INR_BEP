@@ -163,12 +163,74 @@ class GridSubsetSampler(Sampler):
     
 from common_jax_utils.decorators import load_arrays 
 
+# class SoundSampler(Sampler):
+#     """ 
+#     Sample coordinates from a sound. Returns batches of time windows and corresponding pressure values
+#     from a sound fragment for training INRs to represent audio signals.
+#     """
+#     sound_fragment: jax.Array #shape (length,)
+#     fragment_length: int
+#     window_size: int
+#     batch_size: int
+    
+#     @load_arrays
+#     def __init__(self, sound_fragment: jax.Array, window_size: int, batch_size: int, fragment_length: Optional[int]=None):
+#         """
+#         Initialize the sampler.
+        
+#         Args:
+#             sound_fragment: Array containing the audio pressure values
+#             fragment_length: Length of the sound fragment
+#             window_size: Size of each sampled window
+#             batch_size: Number of windows to sample in each batch
+#         """
+#         if fragment_length is None:
+#             fragment_length = sound_fragment.shape[0]
+#         self.sound_fragment = sound_fragment
+#         self.fragment_length = fragment_length
+#         self.window_size = window_size
+#         self.batch_size = batch_size
+
+#     def __call__(self, key: jax.Array) -> tuple[jax.Array, jax.Array]:
+#         """
+#         Sample batches of time windows and pressure values.
+        
+#         Args:
+#             key: PRNG key for random sampling
+            
+#         Returns:
+#             Tuple of:
+#             - time_points: Array of shape (batch_size, window_size) containing time indices
+#             - pressure_values: Array of shape (batch_size, window_size) containing pressure values
+#         """
+#         # Sample starting points uniformly from valid range
+#         start_points = jax.random.uniform(
+#             key, 
+#             shape=(self.batch_size,), 
+#             minval=0, 
+#             maxval=self.fragment_length - self.window_size
+#         )
+#         start_points = jnp.floor(start_points).astype(jnp.int32)
+        
+#         # Create time points array - each row contains window_size sequential points
+#         time_points = jnp.arange(self.window_size)[None,:] + start_points[:,None]
+#         time_points = time_points / self.fragment_length  # Normalize to [0,1]
+        
+#         # Get corresponding pressure values using vectorized indexing
+#         pressure_values = jax.vmap(lambda t: self.sound_fragment[t:t+self.window_size])(start_points)
+        
+#         return time_points, pressure_values
+    
+    
+
+  # ... (keep all existing imports and other classes) ...
+
 class SoundSampler(Sampler):
     """ 
     Sample coordinates from a sound. Returns batches of time windows and corresponding pressure values
     from a sound fragment for training INRs to represent audio signals.
     """
-    sound_fragment: jax.Array #shape (length,)
+    sound_fragment: jax.Array  # shape (length,)
     fragment_length: int
     window_size: int
     batch_size: int
@@ -190,6 +252,18 @@ class SoundSampler(Sampler):
         self.fragment_length = fragment_length
         self.window_size = window_size
         self.batch_size = batch_size
+
+    def get_window(self, start_idx):
+        """
+        Helper function to get a window using dynamic_slice
+        
+        Args:
+            start_idx: Starting index for the window
+            
+        Returns:
+            Window of pressure values of size window_size
+        """
+        return jax.lax.dynamic_slice(self.sound_fragment, (start_idx,), (self.window_size,))
 
     def __call__(self, key: jax.Array) -> tuple[jax.Array, jax.Array]:
         """
@@ -216,11 +290,8 @@ class SoundSampler(Sampler):
         time_points = jnp.arange(self.window_size)[None,:] + start_points[:,None]
         time_points = time_points / self.fragment_length  # Normalize to [0,1]
         
-        # Get corresponding pressure values using vectorized indexing
-        pressure_values = jax.vmap(lambda t: self.sound_fragment[t:t+self.window_size])(start_points)
+        # Get corresponding pressure values using dynamic_slice
+        pressure_values = jax.vmap(self.get_window)(start_points)
         
-        return time_points, pressure_values
-    
-    
-    
+        return time_points, pressure_values  
     
