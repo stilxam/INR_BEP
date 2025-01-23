@@ -148,14 +148,16 @@ class SoundLossEvaluator(eqx.Module):
         :return: Tuple of (total_loss, updated_state) if state provided, else (total_loss, None)
         """
         time_points, pressure_values = locations
-
+        if len(time_points.shape) < 3:
+            time_points = time_points[..., None]
+        
         # Update state if needed
         if state is not None and self.state_update_function is not None:
             inr, state = self.state_update_function(inr, state)
 
         # Evaluate INR at time points - vmap over batch and window dimensions
         #inr_values = jax.vmap(lambda t: jax.vmap(lambda ti: inr(ti))(t))(time_points)
-        inr_values = jax.vmap(jax.vmap(inr)(time_points))  #should also work, but might need to adjust in and out axes
+        inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
         inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
 
         # Calculate time domain MSE loss
