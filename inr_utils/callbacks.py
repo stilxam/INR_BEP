@@ -73,3 +73,40 @@ class ComposedCallback(Callback):
             self._wandb.log(logs)
         if self.show_logs and logs:
             self.display_func(logs)
+
+# Add this new callback class after the existing callbacks
+
+@register_type
+class AudioMetricsCallback(Callback):
+    """Callback for computing and logging audio metrics during training."""
+    
+    def __init__(self, 
+                 metric_collector: MetricCollector,
+                 print_metrics: bool = True,
+                 print_frequency: int = 100):
+        """
+        Args:
+            metric_collector: MetricCollector instance containing AudioMetricsOnGrid
+            print_metrics: Whether to print metrics to console
+            print_frequency: How often to print metrics (in steps)
+        """
+        self.metric_collector = metric_collector
+        self.print_metrics = print_metrics
+        self.print_frequency = print_frequency
+
+    def __call__(self, step, loss, inr, state, optimizer_state):
+        metrics = self.metric_collector.on_batch_end(
+            inr=inr, 
+            state=state, 
+            loss=loss, 
+            optimizer_state=optimizer_state, 
+            step=step
+        )
+        
+        if self.print_metrics and step % self.print_frequency == 0 and metrics:
+            print(f"\nAudio Metrics at step {step}:")
+            for name, value in metrics.items():
+                if name.startswith('audio_'):
+                    print(f"{name.replace('audio_', '')}: {value:.4f}")
+        
+        return metrics

@@ -9,7 +9,7 @@ See https://github.com/SimonKoop/common_jax_utils/blob/main/src/common_jax_utils
 """
 
 from functools import partial
-from typing import Callable, Union
+from typing import Callable, Union, Tuple, Optional
 import tempfile
 from io import BytesIO
 
@@ -18,6 +18,7 @@ from jax import numpy as jnp
 import equinox as eqx
 import PIL
 import numpy as np
+import librosa
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, make_lin_grid, make_gif
@@ -243,3 +244,115 @@ class MSEOnFixedGrid(Metric):
             inr = handle_state(inr, state)
         mse = self._evaluate_on_grid(inr, self.grid)
         return {'MSE_on_fixed_grid': mse}
+
+class AudioMetricsOnGrid(Metric):
+    """
+    Evaluate audio metrics between the INR output and target audio.
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            target_audio: np.ndarray,
+            grid_size: int,
+            batch_size: int = 1024,
+            sr: int = 16000,
+            frequency: str = 'every_n_batches',
+            ):
+        """
+        Args:
+            target_audio: Original audio signal to compare against
+            grid_size: Number of time points to evaluate
+            batch_size: Size of batches for evaluation (will be adjusted to divide grid_size evenly)
+            sr: Sampling rate of the audio
+            frequency: How often to compute metrics
+        """
+        self.target_audio = target_audio
+        self.sr = sr
+        self.frequency = MetricFrequency(frequency)
+        
+        # Create time grid for evaluation
+        self.grid = jnp.linspace(0, 1, grid_size)
+        
+        # Adjust batch_size to divide grid_size evenly
+        if batch_size > grid_size:
+            batch_size = grid_size
+        else:
+            # Find largest factor of grid_size that's <= batch_size
+            while grid_size % batch_size != 0 and batch_size > 1:
+                batch_size -= 1
+                
+        self._batch_size = batch_size
+
+        @eqx.filter_jit
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
+            # Ensure grid has correct shape for batching
+            grid = grid.reshape(-1)[:, None]  # Make 2D array with shape (n, 1)
+            return evaluate_on_grid_batch_wise(inr, grid, batch_size=self._batch_size, apply_jit=False)
+        
+        @eqx.filter_jit
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
+            grid = grid.reshape(-1)[:, None]  # Make 2D array with shape (n, 1)
+            return jax.vmap(inr)(grid)
+
+        self._evaluate_by_batch = staticmethod(_evaluate_by_batch)
+        self._evaluate_at_once = staticmethod(_evaluate_at_once)
+
+        if batch_size > 1:
+            self._evaluate_on_grid = self._evaluate_by_batch
+        else:
+            self._evaluate_on_grid = self._evaluate_at_once
+
+    def _compute_snr(self, original: np.ndarray, reconstructed: np.ndarray) -> float:
+        """Compute Signal-to-Noise Ratio."""
+        noise = original - reconstructed
+        signal_power = np.sum(original ** 2)
+        noise_power = np.sum(noise ** 2)
+        
+        if noise_power == 0:
+            return float('inf')
+        
+        return 10 * np.log10(signal_power / noise_power)
+
+    def _compute_spectral_metrics(self, original: np.ndarray, reconstructed: np.ndarray) -> Tuple[float, float]:
+        """Compute spectral convergence and magnitude error."""
+        orig_spec = np.abs(librosa.stft(original))
+        recon_spec = np.abs(librosa.stft(reconstructed))
+        
+        # Spectral convergence
+        spec_conv = np.linalg.norm(orig_spec - recon_spec, 'fro') / np.linalg.norm(orig_spec, 'fro')
+        
+        # Magnitude error
+        mag_error = np.mean(np.abs(orig_spec - recon_spec))
+        
+        return spec_conv, mag_error
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        if state is not None:
+            inr = handle_state(inr, state)
+
+        # Get reconstruction
+        reconstructed = np.array(self._evaluate_on_grid(inr, self.grid)).squeeze()
+        
+        # Ensure same length for comparison
+        min_len = min(len(self.target_audio), len(reconstructed))
+        original = self.target_audio[:min_len]
+        reconstructed = reconstructed[:min_len]
+
+        # Compute time domain metrics
+        mse = np.mean((original - reconstructed) ** 2)
+        snr = self._compute_snr(original, reconstructed)
+        psnr = 20 * np.log10(1.0 / np.sqrt(mse)) if mse > 0 else float('inf')
+
+        # Compute frequency domain metrics
+        spec_conv, mag_error = self._compute_spectral_metrics(original, reconstructed)
+
+        return {
+            'audio_snr': snr,
+            'audio_psnr': psnr,
+            'audio_mse': mse,
+            'audio_spectral_convergence': spec_conv,
+            'audio_magnitude_error': mag_error
+        }
