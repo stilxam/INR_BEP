@@ -453,7 +453,7 @@ class SyntheticScenesDataLoader:
             )
 
 
-    def __init__(self, split:str, name:str, batch_size:int, poses_per_batch:int, base_path:str="./synthetic_scenes", size_limit:int=-1, *, initial_key: jax.Array):
+    def __init__(self, split:str, name:str, batch_size:int, poses_per_batch:int, base_path:str="./synthetic_scenes", size_limit:int=-1, *, key: jax.Array):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
         
@@ -486,7 +486,7 @@ class SyntheticScenesDataLoader:
                 np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins, ray_directions=ray_directions)
                 print(f"    finished creating {target_path}")
             
-        self.initial_key = jax.device_put(initial_key, self._cpu)
+        self.initial_key = jax.device_put(key, self._cpu)
 
 
 # # the following was just a bad idea 

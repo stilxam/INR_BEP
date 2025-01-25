@@ -9,6 +9,7 @@ from jax import numpy as jnp
 from matplotlib import pyplot as plt
 import optax
 import equinox as eqx
+from jaxtyping import PyTree
 
 import numpy as np
 
@@ -73,6 +74,23 @@ def make_inr_train_step_function(
         inr = eqx.apply_updates(inr, updates)
         return inr, optimizer_state, loss, state
     return train_step
+
+def make_sampler_free_train_step(
+        loss_evaluator,
+        optimizer
+        ):
+    @eqx.filter_jit
+    def train_step(inr: eqx.Module, batch:PyTree, optimizer_state:optax.OptState, state:Optional[eqx.nn.State]=None):
+        (loss, state), grad = eqx.filter_value_and_grad(loss_evaluator, has_aux=True)(inr, batch, state)
+        grad = jax.tree.map(
+            lambda x: jnp.conjugate(x) if jnp.iscomplexobj(x) else x,
+            grad
+        )
+        updates, optimizer_state = optimizer.update(grad, optimizer_state, inr)
+        inr = eqx.apply_updates(inr, updates)
+        return inr, optimizer_state, loss, state
+    return train_step
+
 
 def initialize_state(inr: eqx.Module)->tuple[eqx.Module, Optional[eqx.nn.State]]:
     """ 
@@ -219,3 +237,55 @@ def train_inr(
             wandb.log_model(path=f.name, name='inr.eqx')
     return inr, losses, optimizer_state, state, loss_evaluator, additional_output
 
+
+def train_inr_with_dataloader(
+        inr: eqx.Module,
+        loss_evaluator: LossEvaluator,
+        dataloader: eqx.Module, # TODO think of better type hint
+        optimizer: optax.GradientTransformation,
+        steps: int,
+        use_wandb: bool,
+        after_step_callback: Union[None, Callable, Callback] = None,
+        after_training_callback: Union[None, Callable, eqx.Module] = None,
+        optimizer_state: Union[None, optax.OptState] = None,
+        state_initialization_function: Callable[[eqx.Module], tuple[eqx.Module, eqx.nn.State]] = initialize_state,
+        state: Optional[eqx.nn.State] = None,
+        ):
+    train_step = make_sampler_free_train_step(loss_evaluator=loss_evaluator, optimizer=optimizer)
+    if state is None:
+        inr, state = state_initialization_function(inr)
+    
+    if optimizer_state is None:
+        optimizer_state = optimizer.init(eqx.filter(inr, eqx.is_array))
+
+    losses = np.empty(steps, dtype=np.float32)
+
+    for step, batch in zip(range(steps), iter(dataloader)):  # the actual training loop
+        inr, optimizer_state, loss, state = train_step(inr, batch, optimizer_state, state)
+        losses[step] = loss
+        after_step_callback(step, loss, inr, state, optimizer_state)
+
+    if after_training_callback is None:
+        if np.all(losses>0):
+            plt.yscale("log")
+        plt.plot(losses)
+        plt.show()
+        additional_output = None
+    else:
+        additional_output = after_training_callback(
+            losses=losses, 
+            inr=inr, 
+            state=state,
+            optimizer_state=optimizer_state,
+            loss_evaluator=loss_evaluator, 
+            dataloader=dataloader, 
+            )
+
+    if use_wandb:  # upload the model to weights and biases
+        import wandb
+        import tempfile
+        # first save the model to a temporary file
+        with tempfile.NamedTemporaryFile() as f:
+            eqx.tree_serialise_leaves(f, inr)
+            wandb.log_model(path=f.name, name='inr.eqx')
+    return inr, losses, optimizer_state, state, loss_evaluator, additional_output
