@@ -81,7 +81,8 @@ loss_evaluator = eqx.filter_jit(NeRFLossEvaluator(
     noise_std=1.0,
     white_bkgd=True,
     lindisp=False,
-    randomized=True
+    randomized=True,
+    parallel_batch_size=1
 ))
 output = loss_evaluator(
     nerf_model=nerf_model,

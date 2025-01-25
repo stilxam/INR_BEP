@@ -146,9 +146,12 @@ class NeRFLossEvaluator(nerf_utils.Renderer):
     state_update_function: Optional[Callable] = None
 
     def __call__(self, nerf_model: NeRF, batch:tuple[jax.Array, jax.Array, jax.Array, jax.Array], state:Optional[eqx.nn.State] = None):
-        ray_origins, ray_directions, prng_key, ground_truth = batch
+        ray_origins, ray_directions, prng_key_or_keys, ground_truth = batch
         # give each batch element its own key
-        prng_keys = jax.random.split(prng_key, num=ray_origins.shape[0])
+        if prng_key_or_keys.shape[0] != ray_origins.shape[0]:
+            prng_keys = jax.random.split(prng_key_or_keys, num=ray_origins.shape[0])
+        else:
+            prng_keys = prng_key_or_keys
         
         # render each pixel
         if state is not None:

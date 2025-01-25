@@ -1,11 +1,18 @@
 """
-Based on the jaxnerf implementation from google-research.
+The rendering utilities are based on the jaxnerf implementation from google-research.
 """
-from typing import Optional
+from typing import Optional, Generator #,ClassVar
+import os
+# import multiprocessing
+
+import numpy as np
+from PIL import Image
 
 import jax
 from jax import numpy as jnp
 import equinox as eqx
+
+# from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 
 from common_jax_utils import key_generator
 
@@ -303,4 +310,311 @@ class Renderer(eqx.Module):
         return_value["fine_rgb"] = computed_rgb
         return_value["fine_depth"] = depth
         return return_value
+
+
+class SyntheticScenesHelper:
+    # just a collection of methods related to each other
+    @staticmethod
+    def get_focal(folder:str)->float:
+        # based on https://github.com/vsitzmann/deepvoxels?tab=readme-ov-file#coordinate-and-camera-parameter-conventions
+        with open(f"{folder}/intrinsics.txt", 'r') as intrinsics_file:
+            first_line = next(intrinsics_file)
+            focal_length = float(first_line.split(' ')[0])
+        return focal_length
+    
+    @staticmethod
+    def generate_rays(height:int, width:int, focal:float, pose:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Generate rays for volumetric rendering
+        :param height: height of the image
+        :param width: width of the image
+        :param focal: focal length
+        :param pose: camera pose
+        :return: ray origin and ray direction
+        """
+
+        i, j = np.meshgrid(np.arange(width), np.arange(height), indexing='xy')
+
+        transformed_i = (i - width * 0.5) / focal
+        transformed_j = (j - height * 0.5) / focal
+        k = -np.ones_like(i)  # z-axis
+
+        directions = np.stack([transformed_i, transformed_j, k], axis=-1)  # 2-d grid of 3-d vectors
+        camera_matrix = pose[:3, :3]
+        ray_directions = np.einsum("ijl,kl->ijk", directions, camera_matrix)  # multiply each vector in the grid by camera_matrix
+        ray_origin = pose[:3, -1]
+
+        return ray_origin, ray_directions
+
+    @classmethod
+    def create_numpy_arrays(cls, folder:str)->tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        file_base_names = [
+            file_name.removesuffix('.png')
+            for file_name in os.listdir(f"{folder}/rgb")
+        ]
+        file_base_names = sorted(file_base_names)
+
+        focal_length = cls.get_focal(folder)
+        
+        # first, we determine the sizes of arrays that we need
+        num_images = len(file_base_names)
+
+        with Image.open(f"{folder}/rgb/{file_base_names[0]}.png") as example_image:
+            image_size = example_image.size
+
+        images_shape = (num_images,) + image_size + (3,)
+        images = np.empty(images_shape, dtype=np.float32)
+
+        poses_shape = (num_images, 4, 4)
+        poses = np.empty(poses_shape, dtype=np.float32)
+
+        origins_shape = (num_images, 3)
+        directions_shape = (num_images, ) + image_size + (3,)
+
+        ray_origins = np.empty(origins_shape, dtype=np.float32)
+        ray_directions = np.empty(directions_shape, np.float32)
+
+        # next, we fill those arrays
+        for index, base_name in enumerate(file_base_names):
+            image_path = f"{folder}/rgb/{base_name}.png"
+            pose_path = f"{folder}/pose/{base_name}.txt"
+
+            with Image.open(image_path) as image:
+                images[index] = np.asarray(image, dtype=np.float32)/255.
+            
+            # following is based on https://github.com/vsitzmann/deepvoxels/blob/a12171a77b68980b9b025c70c117e92af973f20b/data_util.py#L53
+            flat_pose = np.loadtxt(pose_path, dtype=np.float32)
+            pose = flat_pose.reshape((4, 4))
+
+            poses[index] = pose
+
+            origin, directions = cls.generate_rays(
+                height=image_size[0],
+                width=image_size[1],
+                focal=focal_length,
+                pose=pose
+            )
+            ray_origins[index] = origin
+            ray_directions[index] = directions
+        
+        return images, poses, ray_origins, ray_directions
+    
+class SyntheticScenesDataLoader:
+    images: jax.Array
+    poses: jax.Array
+    ray_origins: jax.Array
+    ray_directions: jax.Array
+    batch_size: int
+    poses_per_batch: int
+    _pixels_per_pose: int
+
+    def __iter__(self):
+        """ 
+        :yields: three arrays:
+            ray origins
+            ray directions
+            prng_key
+            ground truth
+        """
+        with jax.default_device(self._cpu):
+            key_gen = key_generator(self.initial_key)
+
+        while True:
+            with jax.default_device(self._cpu):
+                key = next(key_gen)
+                poses_key, directions_key, return_key = jax.random.split(key, 3)
+
+                height, width = self.images.shape[1:3]
+                grid_size = height * width
+                dataset_size = self.images.shape[0]
+
+                selected_camera_poses_idx = jax.random.choice(poses_key, dataset_size, shape=(self.poses_per_batch,))
+                selected_directions_idx_flat = jax.random.choice(directions_key, grid_size,  shape=(self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
+                selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None], (self.poses_per_batch, self._pixels_per_pose))
+
+                selected_directions_idx_grid = jax.vmap(
+                    lambda flat_index: jnp.unravel_index(flat_index, shape=(height, width))
+                )(selected_directions_idx_flat)  # multi indices into (height, width) grid
+
+                selected_directions_idx = (selected_camera_poses_idx,)+ selected_directions_idx_grid #  multi indices into (dataset_size, height, width) array
+
+                ray_origins = self.ray_origins[selected_camera_poses_idx]
+                ray_directions = self.ray_directions[selected_directions_idx]
+                ground_truth_pixel_values = self.images[selected_directions_idx]
+
+                ray_origins = ray_origins.reshape((self.batch_size, 3))
+                ray_directions = ray_directions.reshape((self.batch_size, 3))
+                ground_truth_pixel_values = ground_truth_pixel_values.reshape((self.batch_size, 3))
+            yield (
+                jax.device_put(ray_origins, self._gpu),
+                jax.device_put(ray_directions, self._gpu),
+                jax.device_put(return_key, self._gpu),
+                jax.device_put(ground_truth_pixel_values, self._gpu)
+            )
+
+
+    def __init__(self, split:str, name:str, batch_size:int, poses_per_batch:int, base_path:str="./synthetic_scenes", size_limit:int=-1, *, initial_key: jax.Array):
+        self._cpu = jax.devices('cpu')[0]
+        self._gpu = jax.devices('gpu')[0]
+        
+        folder = f"{base_path}/{split}/{name}"
+        if not os.path.exists(folder):
+            raise ValueError(f"Following folder does not exist: {folder}")
+        if batch_size % poses_per_batch:
+            raise ValueError(f"batch_size should be divisible by poses_per_batch. Got {batch_size=} but {poses_per_batch=}  - note that {batch_size % poses_per_batch=}.")
+        
+        self.batch_size = batch_size
+        self.poses_per_batch = poses_per_batch
+        self._pixels_per_pose = batch_size // poses_per_batch
+
+        with jax.default_device(self._cpu):
+            # if we've already stored everything in a single big npz file, just load that
+            target_path = f"{folder}/pre_processed.npz"
+            if os.path.exists(target_path):
+                pre_processed = np.load(target_path)
+                self.images = jnp.asarray(pre_processed['images'][:size_limit])
+                self.poses = jnp.asarray(pre_processed['poses'][:size_limit])
+                self.ray_origins = jnp.asarray(pre_processed['ray_origins'][:size_limit])
+                self.ray_directions = jnp.asarray(pre_processed['ray_directions'][:size_limit])
+            else: # otherwise, create said npz file
+                print(f"creating npz archive for {split}, {name}.")
+                images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
+                self.images = jnp.asarray(images[:size_limit])
+                self.poses = jnp.asarray(poses[:size_limit])
+                self.ray_origins = jnp.asarray(ray_origins[:size_limit])
+                self.ray_directions = jnp.asarray(ray_directions[:size_limit])
+                np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins, ray_directions=ray_directions)
+                print(f"    finished creating {target_path}")
+            
+        self.initial_key = jax.device_put(initial_key, self._cpu)
+
+
+# # the following was just a bad idea 
+# class _SharedArray:
+#     """ 
+#     This is a descriptor (see https://docs.python.org/3/howto/descriptor.html) that can return views into a shared array
+#     Here shared means that it can be shared between processes and workers
+#     """
+#     def __init__(self, c_type:str):
+#         self.c_type = c_type
+
+#     def __set_name__(self, owner, name):
+#         if not hasattr(owner, "_shared_arrays"):
+#             owner._shared_arrays = dict()
+#         self.name = name
+#         owner._shared_arrays[name] = dict()
+
+#     def __set__(self, obj, value:np.ndarray):
+#         data_dict = obj._shared_arrays[self.name]
+#         data_dict["shape"] = value.shape
+#         data_dict["shared_array_base"] = multiprocessing.Array(self.c_type, value.flatten(), lock=False)  # lock=False because we assume we'll only wan to read from the array
+#         data_dict["np_dtype"] = value.dtype
+
+#     def __get__(self, obj, objtyp=None):
+#         data_dict = obj._shared_arrays[self.name]
+#         return np.frombuffer(data_dict["shared_array_base"], dtype=data_dict["np_dtype"]).reshape(data_dict["shape"])  # returns a view into the shared array
+
+
+# class _SyntheticScenesContainer:
+#     """ 
+#     Creates singletons that contain views into shared arrays.
+#     """
+#     containers: ClassVar[dict] = {}  # class variable because we want singletons
+#     images = _SharedArray('f')
+#     poses = _SharedArray('f')
+#     ray_origins = _SharedArray('f')
+#     ray_directions = _SharedArray('f')
+#     _shared_arrays: dict  # under the hood, this holds the actual data
+
+#     def __new__(cls, split:str, name: str, base_path: str):
+#         """ 
+#         If a container for (split, name, base_path) was previously created, just return that one, otherwise, create one and store it.
+#         """
+#         key = (split, name, base_path)
+#         # don't use cls.containers.setdefault because that still has a new instance created (and then garbage collected) every time you call with the same split, name, base_path
+#         if key not in cls.containers:
+#             cls.containers[key] = super().__new__(cls)
+#         return cls.containers[key]
+    
+#     def __init__(self, split:str, name:str, base_path:str):
+#         folder = f"{base_path}/{split}/{name}"
+#         if not os.path.exists(folder):
+#             raise ValueError(f"Following folder does not exist: {folder}")
+        
+#         # if we've already stored everything in a single big npz file, just load that
+#         target_path = f"{folder}/pre_processed.npz"
+#         if os.path.exists(target_path):
+#             pre_processed = np.load(target_path)
+#             self.images = pre_processed['images']
+#             self.poses = pre_processed['poses']
+#             self.ray_origins = pre_processed['ray_origins']
+#             self.ray_directions = pre_processed['ray_directions']
+#         else: # otherwise, create said npz file
+#             print(f"creating npz archive for {split}, {name}.")
+#             images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
+#             self.images = images
+#             self.poses = poses
+#             self.ray_origins = ray_origins
+#             self.ray_directions = ray_directions
+#             np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins, ray_directions=ray_directions)
+#             print(f"    finished creating {target_path}")
+
+#         self._len = np.prod(self.images.shape[:-1])
+
+#     def __len__(self):
+#         return self._len
+
+
+# class SyntheticScenesDataset(IterableDataset):
+
+#     def __init__(self, split:str, name:str, base_path:str="./synthetic_scenes", *, initial_key:jax.Array):
+#         self.data = _SyntheticScenesContainer(split, name, base_path)  # singleton that can return views into shared arrays
+#         cpu = jax.devices('cpu')[0]
+#         self.initial_key = jax.device_put(initial_key, cpu)
+
+#     def __iter__(self):
+#         cpu = jax.devices('cpu')[0]
+#         with jax.default_device(cpu):
+#             worker_info = get_worker_info()  # fom torch.utils.data
+#             if not worker_info:
+#                 return self.iterate_from_jax_key(self.initial_key)  # we don't have to split the key over workers
+#             worker_keys = jax.random.split(self.initial_key, num=worker_info.num_workers)
+#             key = worker_keys[worker_info.id]
+#             return self.iterate_from_jax_key(key)
+
+    
+#     def iterate_from_jax_key(self, key:jax.Array):
+#         #print(f"Starting SyntheticScenesDataset iterable from key={jax.random.key_data(key)}.")
+#         cpu = jax.devices('cpu')[0]
+#         height, width = self.data.images.shape[1:3]
+#         grid_size = height * width
+#         dataset_size = self.data.images.shape[0]
+#         with jax.default_device(cpu):
+#             key = jax.device_put(key)
+#             key_gen = key_generator(key)
+
+#             while True:
+#                 key = next(key_gen)
+#                 poses_key, directions_key, return_key = jax.random.split(key, 3)
+
+#                 selected_camera_pose_id = jax.random.choice(poses_key, dataset_size)
+#                 selected_direction_id_flat = jax.random.choice(directions_key, grid_size)  # flat (raveled) index into grid
+#                 # make numpy arrays out of the jax arrays
+#                 selected_camera_pose_id = np.asarray(selected_camera_pose_id)
+#                 selected_direction_id_flat = np.asarray(selected_direction_id_flat)
+
+#                 selected_direction_id_grid = np.unravel_index(selected_direction_id_flat, shape=(height, width))
+
+#                 selected_direction_id = (selected_camera_pose_id,)+ selected_direction_id_grid #  multi index into (dataset_size, height, width) array
+
+#                 ray_origin = self.data.ray_origins[selected_camera_pose_id]
+#                 ray_direction = self.data.ray_directions[selected_direction_id]
+#                 ground_truth_pixel_value = self.data.images[selected_direction_id]
+
+#                 yield (  # make jax arrays out of the numpy ones before we yield them
+#                     jnp.asarray(ray_origin), 
+#                     jnp.asarray(ray_direction), 
+#                     return_key, 
+#                     jnp.asarray(ground_truth_pixel_value)
+#                     )
 
