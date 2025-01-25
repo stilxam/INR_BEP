@@ -13,7 +13,7 @@ class CountingIdentity(PositionalEncodingLayer):
     state_index: eqx.nn.StateIndex
 
     def __init__(self):
-        self._embedding_matrix = jnp.empty((), dtype=jnp.int32)
+        self._embedding_matrix = jnp.zeros((3,))#jnp.empty((), dtype=jnp.int32)
         init_state = jnp.zeros((), dtype=jnp.int32)
         self.state_index = eqx.nn.StateIndex(init_state)
 

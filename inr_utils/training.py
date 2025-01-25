@@ -289,3 +289,56 @@ def train_inr_with_dataloader(
             eqx.tree_serialise_leaves(f, inr)
             wandb.log_model(path=f.name, name='inr.eqx')
     return inr, losses, optimizer_state, state, loss_evaluator, additional_output
+
+
+# ########################################################################################################################################
+# the following is for training multiple inrs in parallel
+
+def make_scannable_step_function(
+        loss_evaluator:LossEvaluator,
+        sampler:Sampler, 
+        optimizer:optax.GradientTransformation, 
+        inr_static:eqx.Module,
+        ):
+    def train_step(carry, key):
+        inr_weights, optimizer_state, state = carry
+        inr = eqx.combine(inr_weights, inr_static)
+        locations = sampler(key)
+        (loss, state), grad = eqx.filter_value_and_grad(loss_evaluator, has_aux=True)(inr, locations, state)
+        grad = jax.tree.map(
+            lambda x: jnp.conjugate(x) if jnp.iscomplexobj(x) else x,
+            grad
+        )
+        updates, optimizer_state = optimizer.update(grad, optimizer_state, inr)
+        inr = eqx.apply_updates(inr, updates)
+        inr_weights, _ = eqx.partition(inr, eqx.is_array)
+
+        return (inr_weights, optimizer_state, state), loss
+    return train_step
+
+def train_inr_scan(
+        inr: eqx.Module,
+        key:jax.Array,
+        steps:int,
+        loss_evaluator:LossEvaluator,
+        sampler:Sampler, 
+        optimizer:optax.GradientTransformation, 
+        state_initialization_function: Callable[[eqx.Module], tuple[eqx.Module, eqx.nn.State]] = initialize_state
+        ):
+    # prepare everything
+    inr, state = state_initialization_function(inr)
+    inr_weights, inr_static = eqx.partition(inr, eqx.is_array)
+    optimizer_state = optimizer.init(inr_weights)
+    step_function = make_scannable_step_function(
+        loss_evaluator=loss_evaluator,
+        sampler=sampler,
+        optimizer=optimizer,
+        inr_static=inr_static
+    )
+    # train the model
+    keys = jax.random.split(key, num=steps)
+    (inr_weights, optimizer_state, state), losses = jax.lax.scan(step_function, (inr_weights, optimizer_state, state), keys)
+
+    inr = eqx.combine(inr_weights, inr_static)
+    return inr, optimizer_state, state, losses
+
