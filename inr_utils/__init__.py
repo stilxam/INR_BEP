@@ -13,6 +13,7 @@ training: module containing functions for training INRs
 import inr_utils.states as states
 import inr_utils.sampling as sampling
 import inr_utils.images as images
+import inr_utils.nerf_utils as nerf_utils
 import inr_utils.losses as losses
 import inr_utils.metrics as metrics
 import inr_utils.callbacks as callbacks

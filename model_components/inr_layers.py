@@ -153,7 +153,7 @@ class INRLayer(eqx.Module):
         """
         pass
 
-    def __call__(self, x: jax.Array, *, key: Optional[jax.Array]):
+    def __call__(self, x: jax.Array, *, key: Optional[jax.Array]=None):
         # key just to have it be compatible with eqx.nn.Sequential
         if isinstance(self.weights, (list, tuple)):
             # when num_splits > 1
@@ -860,8 +860,9 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
 
     def __call__(self, x, *, key: Optional[jax.Array] = None) -> jax.Array:
         frequencies = jax.vmap(lambda coordinate: coordinate * self.embedding_matrix)(x).flatten()
-        return jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(
+        result = jax.vmap(lambda p: jnp.stack((jnp.sin(p), jnp.cos(p)), axis=0), out_axes=0, in_axes=0)(
             frequencies).flatten()
+        return jnp.concatenate([x, result], axis=0)  # concatinate the original input to the frequency outputs
 
     def out_size(self, in_size):
         """
@@ -869,7 +870,7 @@ class ClassicalPositionalEncoding(PositionalEncodingLayer):
         :parameter in_size: dimensionality of the input
         :returns: dimensionality of the embedding
         """
-        return 2 * self.embedding_matrix.shape[0] * in_size
+        return 2 * self.embedding_matrix.shape[0] * in_size + in_size
 
 class TridentPositionalEncoding(PositionalEncodingLayer):
     """
@@ -883,7 +884,7 @@ class TridentPositionalEncoding(PositionalEncodingLayer):
     def from_config(cls, num_frequency: int,  frequency_param: float = 2., scale_param: float = 1.):
         # powers = jnp.arange(num_frequency, dtype=jnp.int32)/
         powers = jnp.linspace(0, 1, num_frequency)
-        cls.embedding_matrix = 2* jnp.pi * jnp.pow(frequency_scaling, powers)
+        cls.embedding_matrix = 2* jnp.pi * jnp.pow(frequency_param, powers)
         cls.s0 = scale_param
         return cls
 

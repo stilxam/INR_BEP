@@ -2,12 +2,15 @@
 Some common loss functions for training INRs.
 """
 from typing import Optional, Callable, Union
+import functools
 
 import jax
 from jax import numpy as jnp
 from jaxtyping import PyTree  # really just Any
-
 import equinox as eqx
+
+from inr_utils import nerf_utils
+from model_components.inr_modules import NeRF
 
 LossEvaluator = Union[Callable[[eqx.Module, PyTree, Optional[eqx.nn.State]], jax.Array], eqx.Module]
 LossEvaluator.__doc__ = """
@@ -137,6 +140,35 @@ class PointWiseGradLossEvaluator(eqx.Module):
         return self.loss_function(pred_val, true_val), state
 
 
+class NeRFLossEvaluator(nerf_utils.Renderer):
 
-# TODO: Write NERF loss evaluator
-#
+    parallel_batch_size: int
+    state_update_function: Optional[Callable] = None
+
+    def __call__(self, nerf_model: NeRF, batch:tuple[jax.Array, jax.Array, jax.Array, jax.Array], state:Optional[eqx.nn.State] = None):
+        ray_origins, ray_directions, prng_key, ground_truth = batch
+        # give each batch element its own key
+        prng_keys = jax.random.split(prng_key, num=ray_origins.shape[0])
+        
+        # render each pixel
+        if state is not None:
+            results = jax.lax.map(
+                lambda ro_rd_k: self.render_nerf_pixel(nerf_model, *ro_rd_k, state),
+                (ray_origins, ray_directions, prng_keys),
+                batch_size=self.parallel_batch_size
+            )
+        else:
+            results = jax.lax.map(
+                lambda ro_rd_k: self.render_nerf_pixel(nerf_model, *ro_rd_k),
+                (ray_origins, ray_directions, prng_keys),
+                batch_size=self.parallel_batch_size
+            )
+        
+        coarse_predictions = results["coarse_rgb"]
+        fine_predictions = results["fine_rgb"]
+
+        if self.state_update_function is not None:  # update state if necessary
+            # this is e.g. for the progressive training in the integer lattice mapping
+            state = self.state_update_function(state, nerf_model)
+
+        return jnp.square(coarse_predictions - ground_truth).mean() + jnp.square(fine_predictions - ground_truth).mean(), state
