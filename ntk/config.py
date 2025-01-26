@@ -8,8 +8,8 @@ def get_config(layer_type: str, activation_kwargs: Dict[str, float]) -> Config:
     config.architecture = "./model_components"
     config.model_type = "inr_modules.CombinedINR"
     config.model_config = Config()
-    config.model_config.in_size = 2
-    config.model_config.out_size = 2
+    config.model_config.in_size = 1 # 2
+    config.model_config.out_size = 1 # 2
     config.model_config.terms = [
         (
             "inr_modules.MLPINR.from_config",
