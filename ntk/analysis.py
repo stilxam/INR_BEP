@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import neural_tangents as nt
 from jax import jit
 
-
+from timeit import timeit
 
 def get_NTK_ntvp(apply_fn: Callable) -> Callable:
     """Get NTK computation function."""
@@ -16,11 +16,12 @@ def get_NTK_ntvp(apply_fn: Callable) -> Callable:
         )
     )
 
-def decompose_ntk(ntk: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def decompose_ntk(ntk: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, float]:
     """Decompose NTK into eigenvalues and eigenvectors."""
     eigvals, eigvecs = jnp.linalg.eigh(ntk)
     rescaled_eigvals = jnp.flipud(eigvals) / jnp.min(jnp.abs(eigvals))
-    return jnp.flipud(eigvals), jnp.flipud(eigvecs.T), rescaled_eigvals
+    condition_number = jnp.linalg.cond(ntk)
+    return jnp.flipud(eigvals), jnp.flipud(eigvecs.T), rescaled_eigvals, condition_number
 
 
 def analyze_fft(ntk: jnp.ndarray) -> jnp.ndarray:
@@ -50,3 +51,157 @@ def analyze_fft_spectrum(magnitude_spectrum: jnp.ndarray) -> Dict[str, float]:
         "off_diagonal_mean": float(off_diagonal_mean),
         "high_freq_content": float(corners),
     }
+
+
+# @jax.jit
+# def measure_diagonal_strength(ntk: jnp.ndarray) -> float:
+#     size = ntk.shape[0] # ntk is nxn simmetric
+#     r = jnp.arange(size)+1 # also invert r
+#     r_sq = jnp.square(r) # 1/flipup(r^2)
+#
+#     n = jnp.sum(ntk) # maybe sum of squared
+#     s_xy = jnp.sum(r@ntk@r.T)
+#     s_x = jnp.sum(r@ntk)
+#     s_xx = jnp.sum(r_sq@ntk)
+#     s_y = jnp.sum(r@ntk.T)
+#     s_yy = jnp.sum(r_sq@ntk.T)
+#
+#     numerator = n*s_xy - s_x*s_y
+#     denominator = jnp.sqrt(n*s_xx - jnp.square(s_x)) * jnp.sqrt(n*s_yy - jnp.square(s_y))
+#     correlation_coefficient = numerator / denominator
+#     return correlation_coefficient
+
+#
+# @jax.jit
+# def bis_measure_diagonal_strength(ntk: jnp.ndarray) -> float:
+#     size = ntk.shape[0] # ntk is nxn simmetric
+#     r = 1/ jnp.flipud(jnp.arange(size)+1) # also invert r
+#     r_sq = jnp.square(r) # 1/flipup(r^2)
+#
+#     n = jnp.sum(ntk) # maybe sum of squared
+#     s_xy = jnp.sum(r@ntk@r.T)
+#     s_x = jnp.sum(r@ntk)
+#     s_xx = jnp.sum(r_sq@ntk)
+#     s_y = jnp.sum(r@ntk.T)
+#     s_yy = jnp.sum(r_sq@ntk.T)
+#
+#     numerator = n*s_xy - s_x*s_y
+#     denominator = jnp.sqrt(n*s_xx - jnp.square(s_x)) * jnp.sqrt(n*s_yy - jnp.square(s_y))
+#     correlation_coefficient = numerator / denominator
+#     return correlation_coefficient
+
+
+def make_map(k):
+    idx = jnp.arange(k)+1
+    return (jnp.abs(idx - idx[:, None]))
+
+# [0, 1, 2]
+# [1, 0, 1]
+# [2, 1, 0] 
+
+
+
+
+def symmetry_one(k):
+    k = k/jnp.max(k)
+    weights = make_map(k.shape[0])
+    weighted_k = jnp.multiply(k, weights)
+    return jnp.linalg.norm(jnp.diag(weighted_k)) * jnp.mean(jnp.diag(k))/jnp.linalg.norm(weighted_k)
+
+
+
+def measure_of_diagonal_strength(ntk: jax.Array, map_kwarg:int =0, exp_scale:float =1.0):
+    '''
+    Measures how much of a matrix's "energy" is concentrated along its diagonal.
+    
+    This function computes a ratio between the weighted sum of squared off-diagonal elements
+    and the mean squared value of diagonal elements. The weighting scheme is controlled by map_kwarg:
+    
+    Args:
+        ntk: An nxn symmetric matrix to analyze
+        map_kwarg: Integer controlling the weighting scheme:
+
+    Returns:
+        float: A measure of diagonal strength. Lower values indicate more diagonal-dominant matrices.
+              A perfectly diagonal matrix would return 0.
+    '''
+    size = ntk.shape[0]
+    if map_kwarg == 0:
+        # weights = jnp.ones(size) 
+        weights = make_map(size)+1
+    elif map_kwarg == 1:
+        # weights = 1/(make_map(size)+1)
+        weights = jnp.ones((size,size))
+    elif map_kwarg == 2:
+        # weights = 1/jnp.square(make_map(size)+1)
+        weights = 1/(make_map(size)+1)
+    elif map_kwarg == -1:
+        weights = (make_map(size)+1)*jnp.exp(-make_map(size)*exp_scale)
+    else:
+        raise ValueError(f"Invalid map_kwarg: {map_kwarg}")
+    
+    weighted_ntk = jnp.multiply(ntk, weights)
+
+    sum_sq = 0
+    for i in range(1,size):
+        dg = jnp.diag(weighted_ntk, -i)
+        sum_sq += jnp.mean(jnp.square(dg))
+
+
+    rescaled = 2*sum_sq/size
+    return rescaled / jnp.mean(jnp.square(jnp.diag(ntk)))
+
+
+def generate_tridiagonal(n: int, a: float, b: float, c: float) -> jnp.ndarray:
+    """Generate an n x n tridiagonal matrix with a on the main diagonal,
+    b on the subdiagonal, and c on the superdiagonal."""
+    main_diag = jnp.full(n, a)
+    sub_diag = jnp.full(n - 1, b)
+    super_diag = jnp.full(n - 1, c)
+    return jnp.diag(main_diag) + jnp.diag(sub_diag, -1) + jnp.diag(super_diag, 1)
+
+
+def generate_tridiagonal_bis(n: int, a: float, b: float, c: float) -> jnp.ndarray:
+    """Generate an n x n tridiagonal matrix with a on the main diagonal,
+    b on the subdiagonal, and c on the superdiagonal."""
+    main_diag = jnp.full(n, a)
+    sub_diag = jnp.full(n - 2, b)
+    # super_diag = jnp.full(n - 1, c)
+    super_diag = jnp.full(n - 1, 10)
+    return jnp.diag(main_diag) + jnp.diag(sub_diag, -2) + jnp.diag(super_diag, 1)
+
+
+
+if __name__ == "__main__":
+
+
+
+    n = 5
+    a = 40.0
+    b = 10.0
+    c = 0.0
+    X = generate_tridiagonal(n, a, b, c)
+    print(f"{X=}")
+    print(measure_of_diagonal_strength(X, 0))
+
+    X = jnp.eye(n)
+    print(f"{X=}")
+    print(measure_of_diagonal_strength(X, 0))
+
+
+
+
+
+    print(f"{X=}")
+    print(measure_of_diagonal_strength(X, 0))
+    
+    X = jnp.eye(n).at[4,0].set(12.0)
+    print(f"{X=}")
+    print(measure_of_diagonal_strength(X, 0))
+
+    X_bis = jnp.eye(n).at[4,3].set(12.0)
+    print(f"{X_bis=}")
+    print(measure_of_diagonal_strength(X_bis, 0))
+
+
+
