@@ -5,12 +5,10 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import neural_tangents as nt
 import wandb
-from common_dl_utils.config_creation import Config
-from inr_utils.images import make_lin_grid
 
 from .analysis import analyze_fft, analyze_fft_spectrum, decompose_ntk, get_NTK_ntvp
 from .config import get_config, get_activation_kwargs
-from .data import get_flattened_locations, get_nerf_flattened
+
 from .models import make_init_apply
 from .visualization import plot_ntk_kernels, plot_fft_spectrum
 from common_jax_utils import key_generator
@@ -26,17 +24,19 @@ def setup_sweep_config() -> tuple[str, float, dict]:
     return layer_type, param_scale, activation_kwargs
 
 
-def compute_ntk(n: int, layer_type: str, activation_kwargs: dict) -> tuple[jnp.ndarray, jnp.ndarray]:
+def compute_ntk(n: int, layer_type: str, activation_kwargs: dict) -> tuple[jnp.ndarray, jnp.ndarray, float]:
     """Compute NTK and its eigenvalues."""
     config = get_config(layer_type, activation_kwargs)
     init_fn, apply_fn = make_init_apply(config, key_gen)
     params = init_fn()
-    flattened_locations = get_flattened_locations(n)
+    # flattened_locations = get_flattened_locations(n)
+    flattened_locations = jnp.linspace(0.0, 1.0, n).reshape(-1, 1)
 
     ntvp = get_NTK_ntvp(apply_fn)
     NTK = ntvp(flattened_locations, flattened_locations, params)
-    eigvals, _, _ = decompose_ntk(NTK)
-    return NTK, eigvals
+
+    eigvals, _, _, condition_number = decompose_ntk(NTK)
+    return NTK, eigvals, condition_number
 
 
 def analyze_and_visualize(
@@ -57,13 +57,10 @@ def main_sweep() -> None:
     # Setup configuration
     layer_type, param_scale, activation_kwargs = setup_sweep_config()
     # Compute NTK and eigenvalues
-    NTK, eigvals = compute_ntk(n=10, layer_type=layer_type, activation_kwargs=activation_kwargs)
+    NTK, eigvals, condition_number = compute_ntk(n=100, layer_type=layer_type, activation_kwargs=activation_kwargs)
     
     # Analyze and create visualizations
     fft_metrics, fft_fig, ntk_fig = analyze_and_visualize(NTK, layer_type, activation_kwargs)
-    
-    # Calculate condition number
-    condition_number = jnp.abs(eigvals[0] / eigvals[-1])
     
     # Log all metrics and visualizations
     wandb.log({
@@ -77,5 +74,7 @@ def main_sweep() -> None:
         "ntk_plot": wandb.Image(ntk_fig),
         **fft_metrics,
     })
+
+
 
     

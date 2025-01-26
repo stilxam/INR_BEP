@@ -49,9 +49,12 @@ def plot_ntk_kernels(NTK: jnp.ndarray, layer_type: str, activation_kwargs: Dict[
 
     fig, ax = plt.subplots(figsize=(10, 10))
     cax = ax.imshow(NTK, cmap="plasma")
+    ticks = jnp.linspace(0, 1, NTK.shape[0])
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
     fig.colorbar(cax, ax=ax)
     ax.set_title(f"NTK for {layer_name_to_title(layer_type)}\n {activation_kwargs}")
-    plt.axis("off")
+    # plt.axis("off")
     plt.savefig(
         plot_dir.joinpath(
             f"ntk_{layer_name_to_title(layer_type)}_{activation_kwargs}.png"
