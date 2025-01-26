@@ -422,35 +422,44 @@ class SyntheticScenesDataLoader:
         while True:
             with jax.default_device(self._cpu):
                 key = next(key_gen)
-                poses_key, directions_key, return_key = jax.random.split(key, 3)
 
-                height, width = self.images.shape[1:3]
-                grid_size = height * width
-                dataset_size = self.images.shape[0]
-
-                selected_camera_poses_idx = jax.random.choice(poses_key, dataset_size, shape=(self.poses_per_batch,))
-                selected_directions_idx_flat = jax.random.choice(directions_key, grid_size,  shape=(self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
-                selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None], (self.poses_per_batch, self._pixels_per_pose))
-
-                selected_directions_idx_grid = jax.vmap(
-                    lambda flat_index: jnp.unravel_index(flat_index, shape=(height, width))
-                )(selected_directions_idx_flat)  # multi indices into (height, width) grid
-
-                selected_directions_idx = (selected_camera_poses_idx,)+ selected_directions_idx_grid #  multi indices into (dataset_size, height, width) array
-
-                ray_origins = self.ray_origins[selected_camera_poses_idx]
-                ray_directions = self.ray_directions[selected_directions_idx]
-                ground_truth_pixel_values = self.images[selected_directions_idx]
-
-                ray_origins = ray_origins.reshape((self.batch_size, 3))
-                ray_directions = ray_directions.reshape((self.batch_size, 3))
-                ground_truth_pixel_values = ground_truth_pixel_values.reshape((self.batch_size, 3))
+            ray_origins, ray_directions, return_key, ground_truth_pixel_values = self._prepare_arrays(key)
+                
             yield (
                 jax.device_put(ray_origins, self._gpu),
                 jax.device_put(ray_directions, self._gpu),
                 jax.device_put(return_key, self._gpu),
                 jax.device_put(ground_truth_pixel_values, self._gpu)
             )
+
+    @(lambda f: jax.jit(f, device=jax.devices('cpu')[0], static_argnums=0))
+    def _prepare_arrays(self, key:jax.Array):
+        with jax.default_device(self._cpu):
+            poses_key, directions_key, return_key = jax.random.split(key, 3)
+
+            height, width = self.images.shape[1:3]
+            grid_size = height * width
+            dataset_size = self.images.shape[0]
+
+            selected_camera_poses_idx = jax.random.choice(poses_key, dataset_size, shape=(self.poses_per_batch,))
+            selected_directions_idx_flat = jax.random.choice(directions_key, grid_size,  shape=(self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
+            selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None], (self.poses_per_batch, self._pixels_per_pose))
+
+            selected_directions_idx_grid = jax.vmap(
+                lambda flat_index: jnp.unravel_index(flat_index, shape=(height, width))
+            )(selected_directions_idx_flat)  # multi indices into (height, width) grid
+
+            selected_directions_idx = (selected_camera_poses_idx,)+ selected_directions_idx_grid #  multi indices into (dataset_size, height, width) array
+
+            ray_origins = self.ray_origins[selected_camera_poses_idx]
+            ray_directions = self.ray_directions[selected_directions_idx]
+            ground_truth_pixel_values = self.images[selected_directions_idx]
+
+            ray_origins = ray_origins.reshape((self.batch_size, 3))
+            ray_directions = ray_directions.reshape((self.batch_size, 3))
+            ground_truth_pixel_values = ground_truth_pixel_values.reshape((self.batch_size, 3))
+
+            return ray_origins, ray_directions, return_key, ground_truth_pixel_values
 
 
     def __init__(self, split:str, name:str, batch_size:int, poses_per_batch:int, base_path:str="./synthetic_scenes", size_limit:int=-1, *, key: jax.Array):

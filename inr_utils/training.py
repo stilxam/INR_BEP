@@ -342,3 +342,115 @@ def train_inr_scan(
     inr = eqx.combine(inr_weights, inr_static)
     return inr, optimizer_state, state, losses
 
+
+#############################################################################################################################################
+# The above turned out to be much faster for regular training as well, so let's do something similar for training with a dataloader (for NeRFs)
+
+def make_sampler_free_train_cycle(
+        loss_evaluator: LossEvaluator,
+        optimizer: optax.GradientTransformation,
+        inr_static: eqx.Module
+        ):
+    def train_step(carry, batch):
+        inr_weights, optimizer_state, state = carry
+        inr = eqx.combine(inr_weights, inr_static)
+        (loss, state), grad = eqx.filter_value_and_grad(loss_evaluator, has_aux=True)(inr, batch, state)
+        grad = jax.tree.map(
+            lambda x: jnp.conjugate(x) if jnp.iscomplexobj(x) else x,
+            grad
+        )
+        updates, optimizer_state = optimizer.update(grad, optimizer_state, inr)
+        inr = eqx.apply_updates(inr, updates)
+        inr_weights, _ = eqx.partition(inr, eqx.is_array)
+
+        return (inr_weights, optimizer_state, state), loss
+    
+    @jax.jit
+    def train_cycle(carry, batches):
+        carry, losses = jax.lax.scan(train_step, carry, batches)
+        return carry, losses
+    return train_cycle
+
+def train_with_dataloader_scan(
+        inr: eqx.Module,
+        loss_evaluator: LossEvaluator,
+        dataloader: eqx.Module, # TODO think of better type hint
+        optimizer: optax.GradientTransformation,
+        steps_per_cycle: int,
+        num_cycles: int,
+        use_wandb: bool,
+        after_cycle_callback: Union[None, Callable, Callback] = None,
+        after_training_callback: Union[None, Callable, eqx.Module] = None,
+        optimizer_state: Union[None, optax.OptState] = None,
+        state_initialization_function: Callable[[eqx.Module], tuple[eqx.Module, eqx.nn.State]] = initialize_state,
+        state: Optional[eqx.nn.State] = None,
+        ):
+    if state is None:
+        inr, state = state_initialization_function(inr)
+    inr_weights, inr_static = eqx.partition(inr, eqx.is_array)
+    
+    if optimizer_state is None:
+        optimizer_state = optimizer.init(inr_weights)
+    
+    train_cycle = make_sampler_free_train_cycle(
+        loss_evaluator=loss_evaluator,
+        optimizer=optimizer,
+        inr_static=inr_static
+    )
+
+    losses = num_cycles * [None]
+
+    carry = (inr_weights, optimizer_state, state)
+
+    dataloader_iter = iter(dataloader)
+
+    @jax.jit
+    def stack_trees(trees):
+        return jax.tree.map(
+            lambda *x: jnp.stack(x, axis=0),
+            *trees
+        )
+    # import time
+
+    for cycle in range(num_cycles):
+        # t0 = time.time()
+        batches = [next(dataloader_iter) for _ in range(steps_per_cycle)]
+        batches = stack_trees(batches)
+        # jax.block_until_ready(batches)
+        # t1 = time.time()
+        carry, loss_array = train_cycle(carry, batches)
+        losses[cycle] = loss_array
+        # jax.block_until_ready(loss_array)
+        # t2 = time.time()
+        after_cycle_callback(cycle, loss_array.mean(), eqx.combine(carry[0], inr_static), carry[1], carry[2])
+        # t3 = time.time()
+        # print(f"collecting batches: {t1-t0}s,\ntraining: {t2-t1}s,\nafter_cycle_callback: {t3-t2}s\n")
+    
+    losses = np.asarray(jnp.stack(losses, axis=0).flatten())
+    inr_weights, optimizer_state, state = carry
+    inr = eqx.combine(inr_weights, inr_static)
+
+    if after_training_callback is None:
+        if np.all(losses>0):
+            plt.yscale("log")
+        plt.plot(losses)
+        plt.show()
+        additional_output = None
+    else:
+        additional_output = after_training_callback(
+            losses=losses, 
+            inr=inr, 
+            state=state,
+            optimizer_state=optimizer_state,
+            loss_evaluator=loss_evaluator, 
+            dataloader=dataloader
+            )
+
+    if use_wandb:  # upload the model to weights and biases
+        import wandb
+        import tempfile
+        # first save the model to a temporary file
+        with tempfile.NamedTemporaryFile() as f:
+            eqx.tree_serialise_leaves(f, inr)
+            wandb.log_model(path=f.name, name='inr.eqx')
+    return inr, losses, optimizer_state, state, loss_evaluator, additional_output
