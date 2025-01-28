@@ -22,6 +22,7 @@ import numpy as np
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
+from inr_utils.states import handle_state
 from common_jax_utils.metrics import LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
 
 
@@ -86,6 +87,9 @@ class PlotOnGrid2D(Metric):
     
     def compute(self, **kwargs):
         inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        if state is not None:
+            inr = handle_state(inr, state)
         result = np.asarray(self._evaluate_on_grid(inr, self.grid))
         return {'image_on_grid': self._Image(result)}
     
@@ -158,6 +162,9 @@ class PlotOnGrid3D(Metric):
     
     def compute(self, **kwargs):
         inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        if state is not None:
+            inr = handle_state(inr, state)
         result = np.asarray(self._evaluate_on_grid(inr, self.grid))
         with tempfile.NamedTemporaryFile(suffix='.gif') as tmp_file:
             make_gif(result, save_location=tmp_file.name, fps=self.fps, artist_name='PlotOnGrid3D')
@@ -231,6 +238,9 @@ class MSEOnFixedGrid(Metric):
 
     def compute(self, **kwargs):
         inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        if state is not None:
+            inr = handle_state(inr, state)
         mse = self._evaluate_on_grid(inr, self.grid)
         return {'MSE_on_fixed_grid': mse}
 
