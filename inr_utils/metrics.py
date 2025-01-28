@@ -243,3 +243,89 @@ class MSEOnFixedGrid(Metric):
             inr = handle_state(inr, state)
         mse = self._evaluate_on_grid(inr, self.grid)
         return {'MSE_on_fixed_grid': mse}
+
+
+class JaccardIndexSDF(Metric):
+    """ 
+    Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function.
+    The Jaccard index is computed by comparing the binary occupancy grids derived from the SDFs,
+    where negative SDF values indicate points inside the shape.
+    """
+    required_kwargs = set({'inr'})
+    
+    def __init__(
+            self, 
+            target_function: Union[Callable, eqx.Module], 
+            grid: Union[jax.Array, int, list[int]], 
+            batch_size: int, 
+            frequency: str,
+            num_dims: Union[int, None] = 3  # Default to 3D for SDFs
+            ):
+        """
+        :parameter target_function: the target SDF function to compare the INR to
+        :parameter grid: grid on which to evaluate the SDFs
+            if this is an integer i, an i*i*...*i grid will be created
+                (so of shape (i, ..., i, num_dims) with num_dims axes of size i).
+            if this is a tuple of integers (i_0, ..., i_{n-1}), a linear grid with shape (i_0, ..., i_{n-1}, n) will be created
+            if this is a jax.Array, this array will be used as the grid 
+                (should be of shape (grid_dimensions..., num_channels) where the inr takes num_channels inputs)
+        :parameter batch_size: size of the batches of coordinates to process at once
+        :parameter frequency: frequency for the MetricCollector
+        :parameter num_dims: number of dimensions (defaults to 3 for SDFs)
+        """
+        if isinstance(grid, int):
+            if num_dims is None:
+                raise ValueError("If grid is specified as a single integer, num_dims needs to be specified.")
+            grid = num_dims * (grid,)
+        if isinstance(grid, (tuple, list)):
+            grid = make_lin_grid(-1., 1., size=grid)  # Use [-1,1] range for SDFs
+        self.grid = grid
+        self.target_function = target_function
+        self._batch_size = batch_size
+        self.frequency = MetricFrequency(frequency)
+
+        @eqx.filter_jit
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
+            pred = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
+            target = evaluate_on_grid_batch_wise(target_function, grid, batch_size, False)
+            
+            pred_inside = pred <= 0
+            target_inside = target <= 0
+            
+            intersection = jnp.logical_and(pred_inside, target_inside)
+            union = jnp.logical_or(pred_inside, target_inside)
+            
+            intersection_sum = jnp.sum(intersection)
+            union_sum = jnp.sum(union)
+            
+            return jnp.where(union_sum > 0, 
+                           intersection_sum / union_sum,
+                           1.0)  # If both shapes are empty, consider them identical
+        
+        @eqx.filter_jit
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
+            pred = evaluate_on_grid_vmapped(inr, grid)
+            target = evaluate_on_grid_vmapped(target_function, grid)
+            
+            pred_inside = pred <= 0
+            target_inside = target <= 0
+            
+            intersection = jnp.logical_and(pred_inside, target_inside)
+            union = jnp.logical_or(pred_inside, target_inside)
+            
+            intersection_sum = jnp.sum(intersection)
+            union_sum = jnp.sum(union)
+            
+            return jnp.where(union_sum > 0, 
+                           intersection_sum / union_sum,
+                           1.0)  
+        
+        if batch_size:
+            self._evaluate_on_grid = _evaluate_by_batch
+        else:
+            self._evaluate_on_grid = _evaluate_at_once
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        jaccard = self._evaluate_on_grid(inr, self.grid)
+        return {'jaccard_index': jaccard}

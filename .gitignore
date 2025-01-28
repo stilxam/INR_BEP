@@ -3,10 +3,15 @@ example_data/MNIST
 zut.ipynb
 wandb
 *.out
+
 .idea
 /example_data/kirby.png
 !/flax_exp/results/
 /flax_exp/
+
+example_data/*.ply
+example_data/*.xyz
+
 /example_data/
 /results/plots/
 /synthetic_scenes
@@ -15,3 +20,4 @@ wandb
 /.vscode/settings.json
 /.venv/
 *.eqx
+
