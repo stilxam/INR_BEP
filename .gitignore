@@ -5,6 +5,7 @@ wandb
 *.out
 
 .idea
+.vscode
 /example_data/kirby.png
 !/flax_exp/results/
 /flax_exp/
