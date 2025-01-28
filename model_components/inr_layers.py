@@ -776,8 +776,8 @@ class FinerLayer(INRLayer):
     _activation_function = staticmethod(act.finer_activation)
 
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
-                    **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool, bias_k:float, **activation_kwargs):
+
         """
         Initialize FINER layer from hyperparameters
         :param in_size: size of the input
@@ -785,10 +785,12 @@ class FinerLayer(INRLayer):
         :param num_splits: ignored, defaults to 1
         :param key: PRNG key for random number generator
         :param is_first_layer: boolean indicating if this is the first layer
+        :param bias_k: the k for the initialization scheme
         :param w0: scaling factor similar to SIREN (keyword only)
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
         w0 = activation_kwargs['w0']
+        k = bias_k
         w_key, b_key = jax.random.split(key)
         # Weight initialization similar to SIREN
         if is_first_layer:
@@ -798,7 +800,6 @@ class FinerLayer(INRLayer):
         weights = jax.random.uniform(w_key, shape=(out_size, in_size), minval=-lim, maxval=lim)
 
         # Bias initialization over a larger range to flexibly tune the frequency set
-        k = 20  # As per the FINER paper
         biases = jax.random.uniform(b_key, shape=(out_size,), minval=-k, maxval=k)
         return cls(weights, biases, **activation_kwargs)
 
