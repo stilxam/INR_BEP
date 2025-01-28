@@ -258,17 +258,20 @@ class AudioMetricsOnGrid(Metric):
             batch_size: int = 1024,
             sr: int = 16000,
             frequency: str = 'every_n_batches',
+            save_path: Optional[str] = None  # New parameter for saving audio
             ):
         """
         Args:
             target_audio: Original audio signal to compare against
             grid_size: Number of time points to evaluate
-            batch_size: Size of batches for evaluation (will be adjusted to divide grid_size evenly)
+            batch_size: Size of batches for evaluation
             sr: Sampling rate of the audio
             frequency: How often to compute metrics
+            save_path: Path to save reconstructed audio (optional)
         """
         self.target_audio = target_audio
         self.sr = sr
+        self.save_path = save_path
         self.frequency = MetricFrequency(frequency)
         
         # Create time grid for evaluation
@@ -341,6 +344,14 @@ class AudioMetricsOnGrid(Metric):
         original = self.target_audio[:min_len]
         reconstructed = reconstructed[:min_len]
 
+        # Normalize reconstructed audio to [-1, 1] range
+        reconstructed = reconstructed / np.max(np.abs(reconstructed))
+
+        # Save reconstructed audio if path is provided
+        if self.save_path:
+            import soundfile as sf
+            sf.write(self.save_audio, reconstructed, self.sr)
+
         # Compute time domain metrics
         mse = np.mean((original - reconstructed) ** 2)
         snr = self._compute_snr(original, reconstructed)
@@ -349,10 +360,13 @@ class AudioMetricsOnGrid(Metric):
         # Compute frequency domain metrics
         spec_conv, mag_error = self._compute_spectral_metrics(original, reconstructed)
 
-        return {
+        metrics = {
             'audio_snr': snr,
             'audio_psnr': psnr,
             'audio_mse': mse,
             'audio_spectral_convergence': spec_conv,
-            'audio_magnitude_error': mag_error
+            'audio_magnitude_error': mag_error,
+            'reconstructed_audio': reconstructed  # Add reconstructed audio to metrics
         }
+
+        return metrics
