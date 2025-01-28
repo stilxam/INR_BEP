@@ -14,3 +14,4 @@ wandb
 /synthetic_scenes.zip
 /.vscode/settings.json
 /.venv/
+*.eqx

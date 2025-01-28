@@ -39,7 +39,7 @@ class INRLayer(eqx.Module):
     weights: Union[jax.Array, list[jax.Array], tuple[jax.Array]]
     biases: Union[jax.Array, list[jax.Array], tuple[jax.Array]]
 
-    activation_kwargs: dict = eqx.field(static=True)  # think w0 for siren or inverse_scale for gaussian
+    activation_kwargs: dict = eqx.field()  # think w0 for siren or inverse_scale for gaussian
     _activation_function: eqx.AbstractClassVar[Callable]
     allowed_keys: eqx.AbstractClassVar[
         frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
@@ -85,7 +85,7 @@ class INRLayer(eqx.Module):
         """
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
-        return self._activation_function(*args, **self.activation_kwargs)
+        return self._activation_function(*args, **jax.lax.stop_gradient(self.activation_kwargs))
 
     def __init__(self, weights, biases, **activation_kwargs):
         """
