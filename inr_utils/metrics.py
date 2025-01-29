@@ -19,12 +19,19 @@ import equinox as eqx
 import PIL
 import numpy as np
 import librosa
+import trimesh
+from pathlib import Path
+from skimage.measure import marching_cubes
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 from common_jax_utils.metrics import LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
+
+
+import matplotlib.pyplot as plt
+
 
 
 class PlotOnGrid2D(Metric):
@@ -539,3 +546,63 @@ class JaccardIndexSDFNumpy(Metric):
         jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
         
         return {'jaccard_index': float(jaccard)}
+
+
+
+class SDFReconstructor(eqx.Module): 
+    """
+    Reconstructs the SDF of a mesh from an INR
+    """
+    resolution:int
+    inr:Callable
+    state:Optional[eqx.State]
+    batch_size:IndentationError
+    mesh_name:str
+
+    
+    def __init__(self, inr:Callable, state:Optional[eqx.State] = None, mesh_name:str = "sdf", resolution:int = 100, batch_size:int = 1000):
+        self.inr = self.wrap_inr(inr)
+        self.state = state
+        self.resolution = resolution
+        self.batch_size = batch_size
+        self.mesh_name = mesh_name
+    def __call__(self):
+        coords = make_lin_grid(-1, 1, self.resolution, 3)
+        coords = coords.reshape((-1, self.batch_size, 3))
+        sdf_values = jax.vmap(self.inr, in_axes=0)(coords)
+        sdf_values = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
+        verts, faces, normals, values = marching_cubes(sdf_values, level=0)
+
+        
+
+        verts = verts / (self.resolution - 1) * 2 - 1
+        
+        mesh = trimesh.Trimesh(verts, faces)
+
+        mesh.export(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.ply"))
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_trisurf(verts[:, 0], verts[:, 1], verts[:, 2], triangles=faces)
+        ax.set_title(f"Predicted SDF of {self.mesh_name}")
+        plt.savefig(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.png"))
+        plt.show()
+        plt.close()
+        
+
+
+
+        
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
+
+

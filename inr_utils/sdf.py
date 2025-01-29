@@ -1,8 +1,18 @@
 import jax
 from equinox import Module
+import equinox as eqx
+import jax.numpy as jnp
+
 import trimesh
 import numpy as np
 from pathlib import Path
+from typing import Callable, Optional
+
+from images import make_lin_grid
+from skimage.measure import marching_cubes
+import pymeshlab
+
+
 class occupancySDF(Module):
     mesh_path:Path
     mesh:trimesh.Trimesh
@@ -55,13 +65,6 @@ class occupancySDF(Module):
         :return: the SDF function values at the coordinates shape (N, 1)
         """
         return jax.numpy.array(trimesh.proximity.signed_distance(self.mesh, coords))
-
-
-
-
-
-    
-
 
 if __name__ == "__main__":
     mesh_path = "example_data/Armadillo.ply"
