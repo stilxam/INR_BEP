@@ -24,7 +24,7 @@ class PostProcessor(eqx.Module):
                  experiment_parameters, 
                  experiment_config, 
                  key:Optional[jax.Array]=None, 
-                 config_file_path:Optional[str]=None
+                 config_file_path:Optional[str]=None,
                  ):
         with wandb.init(**self.wandb_kwargs) as run:
             print(f"Postprocessing results for run {run.name}  with parameters:\n{pprint.pformat(experiment_parameters)}\n")
@@ -46,7 +46,7 @@ class PostProcessor(eqx.Module):
             print("Computing metrics")
             for metric in self.metrics:
                 log_dict.update(
-                    metric.compute(inr=inr, optimizer_state=optimizer_state, state=state, key=next(key_gen))
+                    metric.compute(inr=inr, optimizer_state=optimizer_state, state=state, key=next(key_gen), **experiment_parameters)
                 )
             
             # plot loss

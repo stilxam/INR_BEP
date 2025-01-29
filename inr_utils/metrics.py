@@ -221,15 +221,23 @@ class MSEOnFixedGrid(Metric):
         self.frequency = MetricFrequency(frequency)
 
         @eqx.filter_jit
-        def _evaluate_by_batch(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_by_batch(inr:eqx.Module, grid:jax.Array, data_index: Optional[Union[int, jax.Array]]):
             results = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
-            reference = evaluate_on_grid_batch_wise(target_function, grid, batch_size, False)
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_batch_wise(target, grid, batch_size, False)
             return mse_loss(results, reference)
         
         @eqx.filter_jit
-        def _evaluate_at_once(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_at_once(inr:eqx.Module, grid:jax.Array, data_index: Optional[Union[int, jax.Array]]):
             results = evaluate_on_grid_vmapped(inr, grid)
-            reference = evaluate_on_grid_vmapped(target_function, grid)
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_vmapped(target, grid)
             return mse_loss(results, reference)
         
         if batch_size:
@@ -240,9 +248,10 @@ class MSEOnFixedGrid(Metric):
     def compute(self, **kwargs):
         inr = kwargs['inr']
         state = kwargs.get("state", None)
+        data_index = kwargs.get("data_index", None)
         if state is not None:
             inr = handle_state(inr, state)
-        mse = self._evaluate_on_grid(inr, self.grid)
+        mse = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
         return {'MSE_on_fixed_grid': mse}
 
 

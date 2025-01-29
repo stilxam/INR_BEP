@@ -2,7 +2,7 @@
 Module for working with images and INRs.
 """
 import functools
-from typing import Callable, Union
+from typing import Callable, Union, Optional
 
 import jax
 from jax import numpy as jnp
@@ -189,8 +189,11 @@ class ContinuousImage(Module):
     underlying_image: jax.Array
     continuous_image: Callable
     scaled: bool
+    data_index: Optional[Union[int, jax.Array]]
+    multi_image: bool = False
+    interpolation_method: Callable
 
-    def __init__(self, image:Union[jax.Array, str], scale_to_01:bool, interpolation_method:Callable):
+    def __init__(self, image:Union[jax.Array, str, list[str]], scale_to_01:bool, interpolation_method:Callable, data_index:Optional[int]=None):
         """ 
         :parameter image: either a path to an image or an array
             Note that this image should have the channels last
@@ -201,6 +204,10 @@ class ContinuousImage(Module):
         """
         if isinstance(image, str):
             image = load_image_as_array(image)
+        elif isinstance(image, (list, tuple)):  # in order for training on multiple images at the same time to work
+            image = jnp.stack([load_image_as_array(i) for i in image], axis=0) # we need to load all the arrays
+            self.multi_image = True
+        self.data_index = data_index # so that this (traced) jax.Array always indexes into the same big array of images.
         self.underlying_image = image
         if scale_to_01:
             self.continuous_image = scale_continuous_image_to_01(
@@ -210,12 +217,24 @@ class ContinuousImage(Module):
         else:
             self.continuous_image = interpolation_method(image)
             self.scaled = False
+        self.interpolation_method = interpolation_method
 
-    def __call__(self, coordinates: jax.Array)->jax.Array:
+    def __call__(self, coordinates: jax.Array, data_index:Optional[Union[int, jax.Array]]=None)->jax.Array:
         """ 
         Evaluate the continuous image at some coordinates
         """
-        return self.continuous_image(coordinates)
+        if self.multi_image: # the following path is not very efficient, but can be jitted to become efficient
+            data_index = data_index if data_index is not None else self.data_index
+            if data_index is None:
+                raise ValueError("You need to specify an data_index if multiple images are provided")
+            image = self.underlying_image[data_index]
+            maybe_scale = scale_continuous_image_to_01 if self.scaled else lambda x: x
+            continuous_image = maybe_scale(self.interpolation_method(image))
+        else:
+            continuous_image = self.continuous_image
+            
+        return continuous_image(coordinates)
+
 
 
 class ArrayInterpolator(Module):
