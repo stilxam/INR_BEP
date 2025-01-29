@@ -22,3 +22,4 @@ example_data/*.xyz
 /.venv/
 *.eqx
 
+/reconstructed_audio.wav

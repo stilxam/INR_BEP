@@ -388,6 +388,11 @@ class SDFSampler(Sampler):
     """
     coords: jax.Array
     normals: jax.Array
+    sdf_name: str
+    batch_size: int
+    on_surface_count: int
+    off_surface_count: int
+    keep_aspect_ratio: bool
 
     def __init__(self, sdf_name: str, batch_size: int, keep_aspect_ratio: bool):
         """
@@ -407,8 +412,8 @@ class SDFSampler(Sampler):
         """
         Convert .ply file to .xyz file
         """
-        fp_ply = Path.cwd().parent.joinpath("example_data", f"{self.sdf_name}.ply")
-        fp_xyz = Path.cwd().parent.joinpath("example_data", f"{self.sdf_name}.xyz")
+        fp_ply = Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply")
+        fp_xyz = Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz")
 
         ms = pymeshlab.MeshSet()
         ms.load_new_mesh(str(fp_ply))
@@ -421,13 +426,13 @@ class SDFSampler(Sampler):
         """
         Load point cloud from .xyz file and normalize it to [-1, 1]^3, return coords and normals
         """
-        if not Path.cwd().parent.joinpath("example_data", f"{self.sdf_name}.xyz").exists():
-            if not Path.cwd().parent.joinpath("example_data", f"{self.sdf_name}.ply").exists():
+        if not Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz").exists():
+            if not Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply").exists():
                 raise FileNotFoundError(f"File {self.sdf_name} does not exist")
             else:
                 self.ply_to_xyz()
 
-        fp_xyz = Path.cwd().parent.joinpath("example_data", f"{self.sdf_name}.xyz")
+        fp_xyz = Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz")
         # print("Loading point cloud from", fp_xyz)
         point_cloud = np.genfromtxt(fp_xyz)
         # print("loaded point cloud with shape", point_cloud.shape)
@@ -464,4 +469,7 @@ class SDFSampler(Sampler):
         normals = jnp.concatenate([self.normals[idx], off_surface_normals], axis=0)
         sdf = jnp.concatenate([sp_sdf, nsp_sdf], axis=0)
         return coords, normals, sdf
+    
+
+
 

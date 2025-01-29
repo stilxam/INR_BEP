@@ -433,13 +433,13 @@ class JaccardIndexSDF(Metric):
         @eqx.filter_jit
         def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
             pred = evaluate_on_grid_vmapped(inr, grid)
-            target = evaluate_on_grid_vmapped(target_function, grid)
+            target = evaluate_on_grid_vmapped(target_function, grid) # Current implementation of target_function is an occupancy function
             
             pred_inside = pred <= 0
-            target_inside = target <= 0
+            # target_inside = target <= 0
             
-            intersection = jnp.logical_and(pred_inside, target_inside)
-            union = jnp.logical_or(pred_inside, target_inside)
+            intersection = jnp.logical_and(pred_inside, target)
+            union = jnp.logical_or(pred_inside, target)
             
             intersection_sum = jnp.sum(intersection)
             union_sum = jnp.sum(union)

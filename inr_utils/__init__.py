@@ -20,3 +20,4 @@ import inr_utils.callbacks as callbacks
 import inr_utils.training as training
 import inr_utils.post_processing as post_processing
 import inr_utils.parallel_training as parallel_training
+import inr_utils.sdf as sdf

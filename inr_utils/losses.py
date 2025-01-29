@@ -184,8 +184,48 @@ class PointWiseGradLossEvaluator(eqx.Module):
             state = self.state_update_function(state, inr)
 
         return self.loss_function(pred_val, true_val), state
-
     
+
+class SDFLossEvaluator(eqx.Module):
+    """ 
+    Evaluates the loss for the sdf values, the intersection values, the normal values, and the gradient values
+    as per the SIREN paper and code (https://github.com/vsitzmann/siren/blob/master/loss_functions.py)
+    """
+    state_update_function: Optional[Callable] = None
+
+    def __call__(self, inr: eqx.Module, batch: tuple[jax.Array, jax.Array, jax.Array, jax.Array], state: Optional[eqx.nn.State] = None):
+        """
+        Compute the SDF loss for a batch of points.
+
+        Args:
+            inr: The INR module representing the SDF
+            batch: Tuple of (coords, normals, sdf_values) from SDFSampler
+            state: Optional state for stateful INRs
+
+        Returns:
+            Tuple of (loss, state) where loss is a jax.Array containing the individual loss components
+            [sdf_loss, intersection_loss, normal_loss, gradient_loss]
+        """
+        coords, gt_normals, gt_sdf_values = batch
+        def get_values(inr, coords):
+            if state is not None:
+                pred_val, _ = inr(coords, state)
+                return pred_val
+            return inr(coords)
+        
+        
+        get_val_and_grad = jax.value_and_grad(get_values)
+        values_and_grads = jax.vmap(get_val_and_grad, in_axes=(None, 0))(inr, coords)
+        
+        pred_val = values_and_grads[0]
+        grad_val = values_and_grads[1]
+
+        loss = sdf_loss(gt_normals, gt_sdf_values, pred_val, grad_val)
+        if self.state_update_function is not None:
+            state = self.state_update_function(state, inr)
+            
+        return loss, state
+
 class SoundLossEvaluator(eqx.Module):
     """ 
     Evaluate the loss on a sound by combining time domain and frequency domain losses.
