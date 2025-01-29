@@ -24,14 +24,14 @@ from pathlib import Path
 from skimage.measure import marching_cubes
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
-from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, make_lin_grid, make_gif
+from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
+    make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
-from common_jax_utils.metrics import LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
-
+from common_jax_utils.metrics import \
+    LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
 
 import matplotlib.pyplot as plt
-
 
 
 class PlotOnGrid2D(Metric):
@@ -41,12 +41,12 @@ class PlotOnGrid2D(Metric):
     required_kwargs = set({'inr'})
 
     def __init__(
-            self, 
-            grid:Union[jax.Array, int, tuple[int, int]], 
-            batch_size:int,
-            use_wandb:bool, 
-            frequency:str, 
-            ):
+            self,
+            grid: Union[jax.Array, int, tuple[int, int]],
+            batch_size: int,
+            use_wandb: bool,
+            frequency: str,
+    ):
         """
         :param grid: grid on which to evaluate the inr
             if this is an integer i, an i \times i grid will be created
@@ -65,18 +65,17 @@ class PlotOnGrid2D(Metric):
                     jnp.linspace(0., 1., grid[0]),
                     jnp.linspace(0., 1., grid[1]),
                     indexing='ij'
-                    ),
+                ),
                 axis=-1
-                )
+            )
         self.grid = grid
         self._batch_size = batch_size
         self.frequency = MetricFrequency(frequency)
 
-
         @eqx.filter_jit
-        def _evaluate_by_batch(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
             return scaled_array_to_image(evaluate_on_grid_batch_wise(inr, grid, batch_size=batch_size, apply_jit=False))
-        
+
         self._evaluate_by_batch = staticmethod(_evaluate_by_batch)
 
         if batch_size:
@@ -90,9 +89,9 @@ class PlotOnGrid2D(Metric):
 
     @staticmethod
     @eqx.filter_jit
-    def _evaluate_at_once(inr:eqx.Module, grid:jax.Array):
+    def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
         return scaled_array_to_image(jax.vmap(jax.vmap(inr))(grid))
-    
+
     def compute(self, **kwargs):
         inr = kwargs['inr']
         state = kwargs.get("state", None)
@@ -100,7 +99,8 @@ class PlotOnGrid2D(Metric):
             inr = handle_state(inr, state)
         result = np.asarray(self._evaluate_on_grid(inr, self.grid))
         return {'image_on_grid': self._Image(result)}
-    
+
+
 class PlotOnGrid3D(Metric):
     """ 
     Plot the INR on a fixed, 3-dimensional grid and turn the result into a GIF
@@ -108,14 +108,14 @@ class PlotOnGrid3D(Metric):
     required_kwargs = set({'inr'})
 
     def __init__(
-            self, 
-            grid:Union[jax.Array, int, tuple[int, int, int]], 
-            batch_size:int,
-            use_wandb:bool, 
-            fps:int,
-            requires_scaling:bool,
-            frequency:str, 
-            ):
+            self,
+            grid: Union[jax.Array, int, tuple[int, int, int]],
+            batch_size: int,
+            use_wandb: bool,
+            fps: int,
+            requires_scaling: bool,
+            frequency: str,
+    ):
         """
         :parameter grid: grid on which to evaluate the inr
             if this is an integer i, an i by i by i grid will be created
@@ -142,17 +142,16 @@ class PlotOnGrid3D(Metric):
         self.frequency = MetricFrequency(frequency)
         self.fps = fps
 
-        scaling = scaled_array_to_image if requires_scaling else lambda x : x
-
+        scaling = scaled_array_to_image if requires_scaling else lambda x: x
 
         @eqx.filter_jit
-        def _evaluate_by_batch(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
             return scaling(evaluate_on_grid_batch_wise(inr, grid, batch_size=batch_size, apply_jit=False))
-        
+
         @eqx.filter_jit
-        def _evaluate_at_once(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
             return scaling(evaluate_on_grid_vmapped(inr, grid))
-        
+
         self._evaluate_by_batch = staticmethod(_evaluate_by_batch)
         self._evaluate_at_once = staticmethod(_evaluate_at_once)
 
@@ -165,9 +164,9 @@ class PlotOnGrid3D(Metric):
             import wandb
         else:
             raise NotImplementedError("No output format has been implemented for PlotOnGrid3D other than wandb.Video")
-        self._Video = (lambda x: x) if not use_wandb else partial(wandb.Video, fps=self.fps, format='gif')  # TODO think of a better option if we're not logging to wandb
-    
-    
+        self._Video = (lambda x: x) if not use_wandb else partial(wandb.Video, fps=self.fps,
+                                                                  format='gif')  # TODO think of a better option if we're not logging to wandb
+
     def compute(self, **kwargs):
         inr = kwargs['inr']
         state = kwargs.get("state", None)
@@ -189,14 +188,15 @@ class MSEOnFixedGrid(Metric):
     Evaluate the INR and the target function on a fixed grid and return the mean squared error between the two
     """
     required_kwargs = set({'inr'})
+
     def __init__(
-            self, 
-            target_function:Union[Callable, eqx.Module], 
-            grid:Union[jax.Array, int, list[int]],
-            batch_size:int,
-            frequency:str,
-            num_dims:Union[int, None]=None,
-            ):
+            self,
+            target_function: Union[Callable, eqx.Module],
+            grid: Union[jax.Array, int, list[int]],
+            batch_size: int,
+            frequency: str,
+            num_dims: Union[int, None] = None,
+    ):
         """ 
         :parameter target_function: the target function to compare the INR to
         :parameter grid: grid on which to evaluate the inr
@@ -217,8 +217,9 @@ class MSEOnFixedGrid(Metric):
         :parameter num_dims: the number of dimensions of the grid
         """
         if isinstance(grid, int):
-            if num_dims is None: 
-                raise ValueError(f"If grid is specified as a single integer, num_dims nees to be specified to know the dimensionality of the grid. Got {grid=} but {num_dims=}.")
+            if num_dims is None:
+                raise ValueError(
+                    f"If grid is specified as a single integer, num_dims nees to be specified to know the dimensionality of the grid. Got {grid=} but {num_dims=}.")
             grid = num_dims * (grid,)
         if isinstance(grid, (tuple, list)):
             grid = make_lin_grid(0., 1., size=grid)
@@ -228,17 +229,17 @@ class MSEOnFixedGrid(Metric):
         self.frequency = MetricFrequency(frequency)
 
         @eqx.filter_jit
-        def _evaluate_by_batch(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
             results = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
             reference = evaluate_on_grid_batch_wise(target_function, grid, batch_size, False)
             return mse_loss(results, reference)
-        
+
         @eqx.filter_jit
-        def _evaluate_at_once(inr:eqx.Module, grid:jax.Array):
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
             results = evaluate_on_grid_vmapped(inr, grid)
             reference = evaluate_on_grid_vmapped(target_function, grid)
             return mse_loss(results, reference)
-        
+
         if batch_size:
             self._evaluate_on_grid = _evaluate_by_batch
         else:
@@ -267,7 +268,7 @@ class AudioMetricsOnGrid(Metric):
             sr: int = 16000,
             frequency: str = 'every_n_batches',
             save_path: Optional[str] = None  # New parameter for saving audio
-            ):
+    ):
         """
         Args:
             target_audio: Original audio signal to compare against
@@ -281,10 +282,10 @@ class AudioMetricsOnGrid(Metric):
         self.sr = sr
         self.save_path = save_path
         self.frequency = MetricFrequency(frequency)
-        
+
         # Create time grid for evaluation
         self.grid = jnp.linspace(0, 1, grid_size)
-        
+
         # Adjust batch_size to divide grid_size evenly
         if batch_size > grid_size:
             batch_size = grid_size
@@ -292,7 +293,7 @@ class AudioMetricsOnGrid(Metric):
             # Find largest factor of grid_size that's <= batch_size
             while grid_size % batch_size != 0 and batch_size > 1:
                 batch_size -= 1
-                
+
         self._batch_size = batch_size
 
         @eqx.filter_jit
@@ -300,7 +301,7 @@ class AudioMetricsOnGrid(Metric):
             # Ensure grid has correct shape for batching
             grid = grid.reshape(-1)[:, None]  # Make 2D array with shape (n, 1)
             return evaluate_on_grid_batch_wise(inr, grid, batch_size=self._batch_size, apply_jit=False)
-        
+
         @eqx.filter_jit
         def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
             grid = grid.reshape(-1)[:, None]  # Make 2D array with shape (n, 1)
@@ -319,23 +320,23 @@ class AudioMetricsOnGrid(Metric):
         noise = original - reconstructed
         signal_power = np.sum(original ** 2)
         noise_power = np.sum(noise ** 2)
-        
+
         if noise_power == 0:
             return float('inf')
-        
+
         return 10 * np.log10(signal_power / noise_power)
 
     def _compute_spectral_metrics(self, original: np.ndarray, reconstructed: np.ndarray) -> Tuple[float, float]:
         """Compute spectral convergence and magnitude error."""
         orig_spec = np.abs(librosa.stft(original))
         recon_spec = np.abs(librosa.stft(reconstructed))
-        
+
         # Spectral convergence
         spec_conv = np.linalg.norm(orig_spec - recon_spec, 'fro') / np.linalg.norm(orig_spec, 'fro')
-        
+
         # Magnitude error
         mag_error = np.mean(np.abs(orig_spec - recon_spec))
-        
+
         return spec_conv, mag_error
 
     def compute(self, **kwargs):
@@ -346,7 +347,7 @@ class AudioMetricsOnGrid(Metric):
 
         # Get reconstruction
         reconstructed = np.array(self._evaluate_on_grid(inr, self.grid)).squeeze()
-        
+
         # Ensure same length for comparison
         min_len = min(len(self.target_audio), len(reconstructed))
         original = self.target_audio[:min_len]
@@ -387,15 +388,15 @@ class JaccardIndexSDF(Metric):
     where negative SDF values indicate points inside the shape.
     """
     required_kwargs = set({'inr'})
-    
+
     def __init__(
-            self, 
-            target_function: Union[Callable, eqx.Module], 
-            grid: Union[jax.Array, int, list[int]], 
-            batch_size: int, 
+            self,
+            target_function: Union[Callable, eqx.Module],
+            grid: Union[jax.Array, int, list[int]],
+            batch_size: int,
             frequency: str,
             num_dims: Union[int, None] = 3  # Default to 3D for SDFs
-            ):
+    ):
         """
         :parameter target_function: the target SDF function to compare the INR to
         :parameter grid: grid on which to evaluate the SDFs
@@ -420,41 +421,42 @@ class JaccardIndexSDF(Metric):
         self.frequency = MetricFrequency(frequency)
 
         @eqx.filter_jit
-        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array): # todo rewrite this all with numpy
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):  # todo rewrite this all with numpy
             pred = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
             target = evaluate_on_grid_batch_wise(target_function, grid, batch_size, False)
-            
+
             pred_inside = pred <= 0
             target_inside = target <= 0
-            
+
             intersection = jnp.logical_and(pred_inside, target_inside)
             union = jnp.logical_or(pred_inside, target_inside)
-            
+
             intersection_sum = jnp.sum(intersection)
             union_sum = jnp.sum(union)
-            
-            return jnp.where(union_sum > 0, 
-                           intersection_sum / union_sum,
-                           1.0)  # If both shapes are empty, consider them identical
-        
+
+            return jnp.where(union_sum > 0,
+                             intersection_sum / union_sum,
+                             1.0)  # If both shapes are empty, consider them identical
+
         @eqx.filter_jit
         def _evaluate_at_once(inr: eqx.Module, grid: jax.Array):
             pred = evaluate_on_grid_vmapped(inr, grid)
-            target = evaluate_on_grid_vmapped(target_function, grid) # Current implementation of target_function is an occupancy function
-            
+            target = evaluate_on_grid_vmapped(target_function,
+                                              grid)  # Current implementation of target_function is an occupancy function
+
             pred_inside = pred <= 0
             # target_inside = target <= 0
-            
+
             intersection = jnp.logical_and(pred_inside, target)
             union = jnp.logical_or(pred_inside, target)
-            
+
             intersection_sum = jnp.sum(intersection)
             union_sum = jnp.sum(union)
-            
-            return jnp.where(union_sum > 0, 
-                           intersection_sum / union_sum,
-                           1.0)  
-        
+
+            return jnp.where(union_sum > 0,
+                             intersection_sum / union_sum,
+                             1.0)
+
         if batch_size:
             self._evaluate_on_grid = _evaluate_by_batch
         else:
@@ -469,7 +471,6 @@ class JaccardIndexSDF(Metric):
         return {'jaccard_index': jaccard}
 
 
-
 class JaccardIndexSDFNumpy(Metric):
     """ 
     Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function,
@@ -477,13 +478,13 @@ class JaccardIndexSDFNumpy(Metric):
     where negative SDF values indicate points inside the shape.
     """
     required_kwargs = set({'inr'})
-    
+
     def __init__(
-            self, 
-            target_function: Callable, 
-            grid_resolution: Union[int, tuple[int, ...]], 
+            self,
+            target_function: Callable,
+            grid_resolution: Union[int, tuple[int, ...]],
             num_dims: int = 3  # Default to 3D for SDFs
-            ):
+    ):
         """
         Args:
             target_function: The target SDF function to compare against
@@ -493,15 +494,17 @@ class JaccardIndexSDFNumpy(Metric):
         """
         self.target_function = target_function
         self.frequency = MetricFrequency('every_n_batches')  # Default frequency
-        
+
         # Handle grid resolution specification
         if isinstance(grid_resolution, int):
             grid_resolution = (grid_resolution,) * num_dims
-            
+
         # Create evaluation grid
         grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+
+        self.target_inside = self._evaluate_sdf(self.target_function, self.grid_points)
 
     def _evaluate_sdf(self, func: Callable, points: np.ndarray) -> np.ndarray:
         """Evaluate SDF function on points."""
@@ -526,46 +529,46 @@ class JaccardIndexSDFNumpy(Metric):
         state = kwargs.get("state", None)
         if state is not None:
             inr = handle_state(inr, state)
-        
+
         # Evaluate both SDFs
         pred_values = self._evaluate_sdf(inr, self.grid_points)
-        target_values = self._evaluate_sdf(self.target_function, self.grid_points)
-        
+        # target_values = self._evaluate_sdf(self.target_function, self.grid_points)
+
         # Convert to occupancy grids (inside = True, outside = False)
         pred_inside = pred_values <= 0
-        target_inside = target_values <= 0
-        
+        # target_inside = target_values <= 0
+
         # Compute intersection and union
-        intersection = np.logical_and(pred_inside, target_inside)
-        union = np.logical_or(pred_inside, target_inside)
-        
+        intersection = np.logical_and(pred_inside, self.target_inside)
+        union = np.logical_or(pred_inside, self.target_inside)
+
         # Calculate Jaccard index
         intersection_sum = np.sum(intersection)
         union_sum = np.sum(union)
-        
+
         jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
-        
+
         return {'jaccard_index': float(jaccard)}
 
 
-
-class SDFReconstructor(eqx.Module): 
+class SDFReconstructor(eqx.Module):
     """
     Reconstructs the SDF of a mesh from an INR
     """
-    resolution:int
-    inr:Callable
-    state:Optional[eqx.State]
-    batch_size:IndentationError
-    mesh_name:str
+    resolution: int
+    inr: Callable
+    state: Optional[eqx.nn.State]
+    batch_size: int
+    mesh_name: str
 
-    
-    def __init__(self, inr:Callable, state:Optional[eqx.State] = None, mesh_name:str = "sdf", resolution:int = 100, batch_size:int = 1000):
+    def __init__(self, inr: Callable, state: Optional[eqx.nn.State] = None, mesh_name: str = "sdf",
+                 resolution: int = 100, batch_size: int = 1000):
         self.inr = self.wrap_inr(inr)
         self.state = state
         self.resolution = resolution
         self.batch_size = batch_size
         self.mesh_name = mesh_name
+
     def __call__(self):
         coords = make_lin_grid(-1, 1, self.resolution, 3)
         coords = coords.reshape((-1, self.batch_size, 3))
@@ -573,10 +576,8 @@ class SDFReconstructor(eqx.Module):
         sdf_values = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
         verts, faces, normals, values = marching_cubes(sdf_values, level=0)
 
-        
-
         verts = verts / (self.resolution - 1) * 2 - 1
-        
+
         mesh = trimesh.Trimesh(verts, faces)
 
         mesh.export(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.ply"))
@@ -588,11 +589,7 @@ class SDFReconstructor(eqx.Module):
         plt.savefig(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.png"))
         plt.show()
         plt.close()
-        
 
-
-
-        
     @staticmethod
     def wrap_inr(inr):
         def wrapped(*args, **kwargs):
@@ -603,6 +600,3 @@ class SDFReconstructor(eqx.Module):
             return out
 
         return wrapped
-
-
-
