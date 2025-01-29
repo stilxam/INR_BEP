@@ -69,19 +69,14 @@ def sdf_loss(gt_normals, y, y_pred, y_grad) -> jax.Array:
 
     normal_constraint = jnp.where(y != -1, 1 - cosine_sim, jnp.zeros_like(y_grad[:, 0]))
     gradient_constraint = jnp.abs(jnp.linalg.norm(y_grad) - 1)
-    # loss_dct = {
-    #     "sdf": jnp.abs(jnp.mean(sdf_constraint)) * 3e3,
-    #     "inter": jnp.mean(inter_constraint) * 1e2,
-    #     "normal": jnp.mean(normal_constraint) * 1e2,
-    #     "grad": jnp.mean(gradient_constraint) * 5e1
-    # }
+
     loss_array = jnp.array([
         jnp.abs(jnp.mean(sdf_constraint)) * 3e3,
         jnp.mean(inter_constraint) * 1e2,
         jnp.mean(normal_constraint) * 1e2,
         jnp.mean(gradient_constraint) * 5e1
     ])
-    return loss_array
+    return jnp.sum(loss_array)
 
 
 
@@ -207,24 +202,35 @@ class SDFLossEvaluator(eqx.Module):
             [sdf_loss, intersection_loss, normal_loss, gradient_loss]
         """
         coords, gt_normals, gt_sdf_values = batch
-        def get_values(inr, coords):
-            if state is not None:
-                pred_val, _ = inr(coords, state)
-                return pred_val
-            return inr(coords)
-        
-        
-        get_val_and_grad = jax.value_and_grad(get_values)
-        values_and_grads = jax.vmap(get_val_and_grad, in_axes=(None, 0))(inr, coords)
-        
-        pred_val = values_and_grads[0]
-        grad_val = values_and_grads[1]
+
+        inr = self.wrap_inr(inr)
+
+        #
+        if state is not None:
+            inr_grad = eqx.filter_grad(inr)
+            grad_val = jax.vmap(inr_grad, (0, None))(coords, state)
+            pred_val = jax.vmap(inr, (0, None))(coords, state)
+        else:
+            inr_grad = eqx.filter_grad(inr)
+            grad_val = jax.vmap(inr_grad)(coords)
+            pred_val = jax.vmap(inr)(coords)
 
         loss = sdf_loss(gt_normals, gt_sdf_values, pred_val, grad_val)
         if self.state_update_function is not None:
             state = self.state_update_function(state, inr)
             
         return loss, state
+
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
 
 class SoundLossEvaluator(eqx.Module):
     """ 
