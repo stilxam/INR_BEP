@@ -80,7 +80,7 @@ class SDFDataLoader:
         """
         Loads the normalized point cloud from the file and generates batches of surface and off-surface points
         """
-        idx = jax.random.choice(key, self.coords.shape[0], shape=(self.on_surface_count,), replace=False)
+        idx = jax.random.choice(key, self.coords.shape[0], shape=(self.on_surface_count,), replace=True)
         off_surface_coords = jax.random.uniform(
             key, shape=(self.off_surface_count, 3), minval=-1., maxval=1.)
         off_surface_normals = jnp.ones((self.off_surface_count, 3)) * -1.

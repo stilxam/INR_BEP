@@ -202,21 +202,22 @@ class SDFLossEvaluator(eqx.Module):
             [sdf_loss, intersection_loss, normal_loss, gradient_loss]
         """
         coords, gt_normals, gt_sdf_values = batch
+        
+        inr_wrapped = self.wrap_inr(inr)
 
-        inr = self.wrap_inr(inr)
-
-        #
         if state is not None:
-            inr_grad = eqx.filter_grad(inr)
+            
+            inr_grad = eqx.filter_grad(inr_wrapped)
             grad_val = jax.vmap(inr_grad, (0, None))(coords, state)
-            pred_val = jax.vmap(inr, (0, None))(coords, state)
+            pred_val = jax.vmap(inr_wrapped, (0, None))(coords, state)
         else:
-            inr_grad = eqx.filter_grad(inr)
+            inr_grad = eqx.filter_grad(inr_wrapped)
             grad_val = jax.vmap(inr_grad)(coords)
-            pred_val = jax.vmap(inr)(coords)
+            pred_val = jax.vmap(inr_wrapped)(coords)
 
         loss = sdf_loss(gt_normals, gt_sdf_values, pred_val, grad_val)
-        if self.state_update_function is not None:
+        if self.state_update_function is not None:  # update state if necessary
+            # this is e.g. for the progressive training in the integer lattice mapping
             state = self.state_update_function(state, inr)
             
         return loss, state
@@ -260,9 +261,6 @@ class SoundLossEvaluator(eqx.Module):
         if len(time_points.shape) < 3:
             time_points = time_points[..., None]
         
-        # Update state if needed
-        if state is not None and self.state_update_function is not None:
-            inr, state = self.state_update_function(inr, state)
 
         # Evaluate INR at time points - vmap over batch and window dimensions
         #inr_values = jax.vmap(lambda t: jax.vmap(lambda ti: inr(ti))(t))(time_points)
@@ -282,10 +280,11 @@ class SoundLossEvaluator(eqx.Module):
         # Combine losses with weights
         total_loss = self.time_domain_weight * time_loss + self.frequency_domain_weight * freq_loss
 
-        return total_loss, state
-        
+        if self.state_update_function is not None:  # update state if necessary
+            # this is e.g. for the progressive training in the integer lattice mapping
+            state = self.state_update_function(state, inr)
 
-    
+        return total_loss, state
 
 
 class NeRFLossEvaluator(nerf_utils.Renderer):
