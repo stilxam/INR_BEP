@@ -67,8 +67,10 @@ def run_parallel_experiments(
     post_processor = cdu.config_realization.get_model_from_config(  # we put this before the training
         config=post_processing_config,  # so that if there are any problems with the post_processing_config
         model_prompt = "post_processor_type",  # we find out before we spent time and resources training models
-        default_module_key="components_module"
+        default_module_key="components_module",
+        initialize=False
     )
+    post_processor = post_processor.initialize()
 
     # prepare the keys and 
     num_experiments = cdu.trees.get_first_leaf(missing_kwargs, is_leaf=eqx.is_array_like).shape[0]

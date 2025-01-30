@@ -193,7 +193,7 @@ class ContinuousImage(Module):
     multi_image: bool = False
     interpolation_method: Callable
 
-    def __init__(self, image:Union[jax.Array, str, list[str]], scale_to_01:bool, interpolation_method:Callable, data_index:Optional[int]=None):
+    def __init__(self, image:Union[jax.Array, str, list[str]], scale_to_01:bool, interpolation_method:Callable, data_index:Optional[int]):
         """ 
         :parameter image: either a path to an image or an array
             Note that this image should have the channels last

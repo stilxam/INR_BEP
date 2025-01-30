@@ -1,10 +1,6 @@
 ---
 # the arguments in here will be varried
-activation_kwargs:
-    w0: [10., 10., 15., 15., 20., 20., 25., 25., 30., 30., 35., 35.]
-
-learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
-
+data_index: [0, 1, 2, 3, 4, 5]
 ---
 # the arguments in here will be shared across experiments :)
 architecture: ./model_components
@@ -15,6 +11,7 @@ model_config:
   hidden_size: 256
   num_layers: 5
   layer_type: inr_layers.SirenLayer
+  activation_kwargs: {w0: 15}
   num_splits: 1
 
 trainer_module: ./inr_utils/
@@ -23,19 +20,25 @@ trainer_type: training.train_inr_scan
 loss_evaluator: losses.PointWiseLossEvaluator
 target_function: images.ContinuousImage
 target_function_config:
-  image: ./example_data/parrot.png
+  image: 
+      - example_data/flowers_for_experiments/medium_entropy/2265579414_2e00a8f265_n.jpg 
+      - example_data/flowers_for_experiments/medium_entropy/5042785753_392cc4e74d_n.jpg
+      - example_data/flowers_for_experiments/low_entropy/132538273_335240fe5b_n.jpg 
+      - example_data/flowers_for_experiments/low_entropy/19019544592_b64469bf84_n.jpg
+      - example_data/flowers_for_experiments/high_entropy/11405573_24a8a838cc_n.jpg
+      - example_data/flowers_for_experiments/high_entropy/6250363717_17732e992e_n.jpg
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
-  data_index: None
 loss_function: losses.scaled_mse_loss
 
 sampler: sampling.GridSubsetSampler
 sampler_config:
-  size: [2040, 1356]
+  size: [320, 240]
   batch_size: 2000
-  allow_duplicates: false
+  allow_duplicates: true
 
 optimizer: adam
+learning_rate: 1.5e-4
 steps: 40000
 
 ---
@@ -44,17 +47,23 @@ steps: 40000
 components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
-  - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
+  - [metrics.MSEOnFixedGrid, {grid: [320, 240], batch_size: 3200, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
 storage_directory: results/example_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: example  # set a group parameter to filter later on in wandb
+  group: example2  # set a group parameter to filter later on in wandb
 
 # for some of the metrics
 target_function: images.ContinuousImage
 target_function_config:
-  image: ./example_data/parrot.png
+  image: 
+      - example_data/flowers_for_experiments/medium_entropy/2265579414_2e00a8f265_n.jpg 
+      - example_data/flowers_for_experiments/medium_entropy/5042785753_392cc4e74d_n.jpg
+      - example_data/flowers_for_experiments/low_entropy/132538273_335240fe5b_n.jpg 
+      - example_data/flowers_for_experiments/low_entropy/19019544592_b64469bf84_n.jpg
+      - example_data/flowers_for_experiments/high_entropy/11405573_24a8a838cc_n.jpg
+      - example_data/flowers_for_experiments/high_entropy/6250363717_17732e992e_n.jpg
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
   data_index: None
