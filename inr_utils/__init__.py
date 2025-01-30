@@ -10,6 +10,7 @@ metrics: module containing metrics for monitoring the training of INRs
 callbacks: module containing custom callbacks for training INRs
 training: module containing functions for training INRs
 """
+import inr_utils.masking as masking
 import inr_utils.states as states
 import inr_utils.images as images
 import inr_utils.nerf_utils as nerf_utils

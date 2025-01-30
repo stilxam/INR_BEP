@@ -382,6 +382,8 @@ class SoundSampler(Sampler):
     
 
 
+import trimesh
+
 class SDFSampler(Sampler):
     """
     Sampler that samples random subsets of a fixed size of a given set of coordinates
@@ -405,53 +407,44 @@ class SDFSampler(Sampler):
         self.on_surface_count = batch_size // 2
         self.off_surface_count = batch_size - self.on_surface_count
         self.keep_aspect_ratio = keep_aspect_ratio
-        self.load_xyz()
+        self.load_shape()
 
 
-    def ply_to_xyz(self):
+    def load_shape(self):
         """
-        Convert .ply file to .xyz file
+        Load .ply file
         """
         fp_ply = Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply")
-        fp_xyz = Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz")
+        # fp_xyz = Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz")
 
-        ms = pymeshlab.MeshSet()
-        ms.load_new_mesh(str(fp_ply))
-        ms.save_current_mesh(
-            str(fp_xyz),
-            save_vertex_normal=True,
-        )
+        mesh = trimesh.load(str(fp_ply))
+        
+        if not mesh.is_watertight:
+            raise ValueError(f"Mesh {self.sdf_name} is not watertight")
+        
+        
+        vertices = mesh.vertices
 
-    def load_xyz(self):
-        """
-        Load point cloud from .xyz file and normalize it to [-1, 1]^3, return coords and normals
-        """
-        if not Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz").exists():
-            if not Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply").exists():
-                raise FileNotFoundError(f"File {self.sdf_name} does not exist")
-            else:
-                self.ply_to_xyz()
-
-        fp_xyz = Path.cwd().joinpath("example_data", f"{self.sdf_name}.xyz")
-        # print("Loading point cloud from", fp_xyz)
-        point_cloud = np.genfromtxt(fp_xyz)
-        # print("loaded point cloud with shape", point_cloud.shape)
-        coords = point_cloud[:, :3]
-        normals = point_cloud[:, 3:]
-
-        coords -= np.mean(coords, axis=0, keepdims=True)
         if self.keep_aspect_ratio:
-            coord_max = np.amax(coords)
-            coords_min = np.amin(coords)
+            coord_max = np.amax(vertices)
+            coords_min = np.amin(vertices)
         else:
-            coord_max = np.amax(coords, axis=0, keepdims=True)
-            coords_min = np.amin(coords, axis=0, keepdims=True)
-        coords = (coords - coords_min) / (coord_max - coords_min)
-        coords -= 0.5
-        coords *= 2
+            coord_max = np.amax(vertices, axis=0, keepdims=True)
+            coords_min = np.amin(vertices, axis=0, keepdims=True)
+        
+        vertices = (vertices - coords_min) / (coord_max - coords_min)
+        vertices -= 0.5
+        vertices *= 2
+        
+        # Update the mesh vertices
+        mesh.vertices = vertices
 
-        self.coords = jnp.array(coords)
-        self.normals = jnp.array(normals)
+        if not mesh.is_watertight:
+            raise ValueError(f"Rescaled mesh {self.sdf_name} is not watertight, please fix the mesh before using this class")
+        
+
+        self.coords = np.array(mesh.vertices)
+        self.normals = np.array(mesh.vertex_normals)
 
     def __call__(self, key):
         """
@@ -469,7 +462,4 @@ class SDFSampler(Sampler):
         normals = jnp.concatenate([self.normals[idx], off_surface_normals], axis=0)
         sdf = jnp.concatenate([sp_sdf, nsp_sdf], axis=0)
         return coords, normals, sdf
-    
-
-
 

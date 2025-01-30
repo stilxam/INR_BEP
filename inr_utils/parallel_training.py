@@ -40,7 +40,14 @@ def run_single_experiment(missing_kwargs: dict[str, PyTree], incomplete_config: 
 
 def tree_unstack(tree, axis=0):
     leaves, tree_def = jax.tree.flatten(tree)
-    unstacked_leaves = [jnp.unstack(leaf, axis=axis) for leaf in leaves]
+    array_leaf = next(filter(eqx.is_array, leaves))
+    num_out = array_leaf.shape[axis]
+    def _safe_unstack(maybe_array):
+        if eqx.is_array(maybe_array):
+            return jnp.unstack(maybe_array, axis=axis)
+        else:
+            return num_out*[maybe_array]
+    unstacked_leaves = [_safe_unstack(leaf) for leaf in leaves]
     del leaves
     return [tree_def.unflatten(leaves) for leaves in zip(*unstacked_leaves)]
 
