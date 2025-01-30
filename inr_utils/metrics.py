@@ -19,6 +19,7 @@ import equinox as eqx
 import PIL
 import numpy as np
 import librosa
+import plotly.graph_objects as go
 import trimesh
 from pathlib import Path
 from skimage.measure import marching_cubes
@@ -29,8 +30,7 @@ from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise,
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 from inr_utils.sdf import SDFDataLoader
-from common_jax_utils.metrics import \
-    LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
+from common_jax_utils.metrics import LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
 
 import matplotlib.pyplot as plt
 
@@ -469,28 +469,28 @@ class SDFReconstructor(eqx.Module):
         self.state = state
         self.resolution = resolution
         self.batch_size = batch_size
-        self.mesh_name = mesh_name
 
-    def __call__(self):
-        coords = make_lin_grid(-1, 1, self.resolution, 3)
-        coords = coords.reshape((-1, self.batch_size, 3))
-        sdf_values = jax.vmap(self.inr, in_axes=0)(coords)
-        sdf_values = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
-        verts, faces, normals, values = marching_cubes(sdf_values, level=0)
+    def __call__(self, *args, **kwargs) -> dict:
+        grid = make_lin_grid(-1, 1, self.resolution, 3)
 
-        verts = verts / (self.resolution - 1) * 2 - 1
+        sdf_values = self.inr(grid)
+        # batched_grid = grid.reshape((-1, self.batch_size, 3))
+        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
+        # sdf_values = batched_sdf_values.reshape((-1, 1))
+        fig = go.Figure(data=go.Isosurface(
+            x=grid[:, 0],
+            y=grid[:, 1],
+            z=grid[:, 2],
+            value=sdf_values,
+            isomin=-1/self.resolution,
+            isomax=1/self.resolution,
+            surface_count=1,
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+        return {"Zero Level Set": fig}
 
-        mesh = trimesh.Trimesh(verts, faces)
 
-        mesh.export(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.ply"))
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.plot_trisurf(verts[:, 0], verts[:, 1], verts[:, 2], triangles=faces)
-        ax.set_title(f"Predicted SDF of {self.mesh_name}")
-        plt.savefig(Path.cwd().joinpath("example_data", f"pred_{self.mesh_name}.png"))
-        plt.show()
-        plt.close()
 
     @staticmethod
     def wrap_inr(inr):
