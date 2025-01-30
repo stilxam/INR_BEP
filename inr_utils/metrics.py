@@ -395,8 +395,9 @@ class JaccardIndexSDF(Metric):
             self,
             target_function: eqx.Module,
             grid_resolution: Union[int, tuple[int, ...]],
-            batch_size: int = 1024,
-            num_dims: int = 3  # Default to 3D for SDFs
+            batch_size: int,
+            num_dims: int = 3,  # Default to 3D for SDFs
+            frequency: str = 'every_n_batches'
     ):
         """
         Args:
@@ -405,7 +406,7 @@ class JaccardIndexSDF(Metric):
                            or tuple specifying resolution per dimension
             num_dims: Number of dimensions (defaults to 3 for SDFs)
         """
-        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
+        self.frequency = MetricFrequency(frequency)
 
         # Handle grid resolution specification
         if isinstance(grid_resolution, int):
@@ -462,11 +463,12 @@ class SDFReconstructor(Metric):
     required_kwargs = set({'inr'})
 
     def __init__(self,
-                 resolution: int = 100,
-                 batch_size: int = 1024
+                 grid_resolution: int,
+                 batch_size: int,
+                 frequency: str = 'every_n_batches'
                  ):
-        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
-        self.resolution = resolution
+        self.frequency = MetricFrequency(frequency)
+        self.resolution = grid_resolution
         self.batch_size = batch_size
 
     # def __call__(self, *args, **kwargs) -> dict:
