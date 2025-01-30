@@ -72,7 +72,7 @@ def sdf_loss(gt_normals, y, y_pred, y_grad) -> jax.Array:
 
     loss_array = jnp.array([
         jnp.abs(jnp.mean(sdf_constraint)) * 3e3,
-        jnp.mean(inter_constraint) * 1e2,
+        jnp.mean(inter_constraint) * 3e3,
         jnp.mean(normal_constraint) * 1e2,
         jnp.mean(gradient_constraint) * 5e1
     ])
