@@ -453,27 +453,30 @@ class JaccardIndexSDF(Metric):
 
 
 
-class SDFReconstructor(eqx.Module):
+class SDFReconstructor(Metric):
     """
     Reconstructs the SDF of a mesh from an INR
     """
-    resolution: int
-    inr: Callable
-    state: Optional[eqx.nn.State]
-    batch_size: int
-    mesh_name: str
+    required_kwargs = set({'inr'})
 
-    def __init__(self, inr: Callable, state: Optional[eqx.nn.State] = None,
-                 resolution: int = 100, batch_size: int = 1000):
-        self.inr = self.wrap_inr(inr)
-        self.state = state
+
+
+    def __init__(self,
+                 resolution: int = 100,
+                 ):
+        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
         self.resolution = resolution
-        self.batch_size = batch_size
 
-    def __call__(self, *args, **kwargs) -> dict:
+    # def __call__(self, *args, **kwargs) -> dict:
+    def compute(self, **kwargs) ->dict:
+        inr = kwargs['inr']
+        inr = self.wrap_inr(inr)
+
+        state = kwargs.get("state", None)
+
         grid = make_lin_grid(-1, 1, self.resolution, 3)
 
-        sdf_values = self.inr(grid)
+        sdf_values = inr(grid)
         # batched_grid = grid.reshape((-1, self.batch_size, 3))
         # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
         # sdf_values = batched_sdf_values.reshape((-1, 1))
