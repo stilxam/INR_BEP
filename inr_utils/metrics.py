@@ -381,6 +381,7 @@ class AudioMetricsOnGrid(Metric):
 
         return metrics
 
+
 class JaccardIndexSDF(Metric):
     """
     Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function,
@@ -391,7 +392,7 @@ class JaccardIndexSDF(Metric):
 
     def __init__(
             self,
-            target_function: Callable,
+            target_function: eqx.Module,
             grid_resolution: Union[int, tuple[int, ...]],
             num_dims: int = 3  # Default to 3D for SDFs
     ):
@@ -402,7 +403,6 @@ class JaccardIndexSDF(Metric):
                            or tuple specifying resolution per dimension
             num_dims: Number of dimensions (defaults to 3 for SDFs)
         """
-        self.target_function = target_function
         self.frequency = MetricFrequency('every_n_batches')  # Default frequency
 
         # Handle grid resolution specification
@@ -414,39 +414,19 @@ class JaccardIndexSDF(Metric):
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
 
-        self.target_inside = self._evaluate_sdf(self.target_function, self.grid_points)
+        self.target_inside = target_function(self.grid_points)
 
-    def _evaluate_sdf(self, func: Callable, points: np.ndarray) -> np.ndarray:
-        """Evaluate SDF function on points."""
-        try:
-            # Try direct evaluation first
-            values = func(points)
-            if hasattr(values, 'numpy'):  # Handle JAX arrays
-                values = np.array(values)
-            return values
-        except:
-            # Fallback to per-point evaluation
-            values = []
-            for point in points:
-                val = func(point)
-                if hasattr(val, 'numpy'):  # Handle JAX arrays
-                    val = np.array(val)
-                values.append(val)
-            return np.array(values)
 
     def compute(self, **kwargs):
         inr = kwargs['inr']
         state = kwargs.get("state", None)
-        if state is not None:
-            inr = handle_state(inr, state)
 
-        # Evaluate both SDFs
-        pred_values = self._evaluate_sdf(inr, self.grid_points)
-        # target_values = self._evaluate_sdf(self.target_function, self.grid_points)
+        inr = self.wrap_inr(inr)
+
+        pred_values = inr(self.grid_points)
 
         # Convert to occupancy grids (inside = True, outside = False)
         pred_inside = pred_values <= 0
-        # target_inside = target_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
@@ -459,84 +439,18 @@ class JaccardIndexSDF(Metric):
         jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
 
         return {'jaccard_index': float(jaccard)}
-class JaccardIndexSDFNumpy(Metric):
-    """ 
-    Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function,
-    using NumPy operations. The Jaccard index is computed by comparing the binary occupancy grids derived from the SDFs,
-    where negative SDF values indicate points inside the shape.
-    """
-    required_kwargs = set({'inr'})
 
-    def __init__(
-            self,
-            target_function: Callable,
-            grid_resolution: Union[int, tuple[int, ...]],
-            num_dims: int = 3  # Default to 3D for SDFs
-    ):
-        """
-        Args:
-            target_function: The target SDF function to compare against
-            grid_resolution: Resolution of evaluation grid. Either single int for uniform resolution
-                           or tuple specifying resolution per dimension
-            num_dims: Number of dimensions (defaults to 3 for SDFs)
-        """
-        self.target_function = target_function
-        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
 
-        # Handle grid resolution specification
-        if isinstance(grid_resolution, int):
-            grid_resolution = (grid_resolution,) * num_dims
+        return wrapped
 
-        # Create evaluation grid
-        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
-        grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
-        self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
-
-        self.target_inside = self._evaluate_sdf(self.target_function, self.grid_points)
-
-    def _evaluate_sdf(self, func: Callable, points: np.ndarray) -> np.ndarray:
-        """Evaluate SDF function on points."""
-        try:
-            # Try direct evaluation first
-            values = func(points)
-            if hasattr(values, 'numpy'):  # Handle JAX arrays
-                values = np.array(values)
-            return values
-        except:
-            # Fallback to per-point evaluation
-            values = []
-            for point in points:
-                val = func(point)
-                if hasattr(val, 'numpy'):  # Handle JAX arrays
-                    val = np.array(val)
-                values.append(val)
-            return np.array(values)
-
-    def compute(self, **kwargs):
-        inr = kwargs['inr']
-        state = kwargs.get("state", None)
-        if state is not None:
-            inr = handle_state(inr, state)
-
-        # Evaluate both SDFs
-        pred_values = self._evaluate_sdf(inr, self.grid_points)
-        # target_values = self._evaluate_sdf(self.target_function, self.grid_points)
-
-        # Convert to occupancy grids (inside = True, outside = False)
-        pred_inside = pred_values <= 0
-        # target_inside = target_values <= 0
-
-        # Compute intersection and union
-        intersection = np.logical_and(pred_inside, self.target_inside)
-        union = np.logical_or(pred_inside, self.target_inside)
-
-        # Calculate Jaccard index
-        intersection_sum = np.sum(intersection)
-        union_sum = np.sum(union)
-
-        jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
-
-        return {'jaccard_index': float(jaccard)}
 
 
 class SDFReconstructor(eqx.Module):
