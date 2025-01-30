@@ -179,59 +179,160 @@ class PointWiseGradLossEvaluator(eqx.Module):
             state = self.state_update_function(state, inr)
 
         return self.loss_function(pred_val, true_val), state
+
+
+# class SoundLossEvaluator(eqx.Module):
+#     """ 
+#     Evaluate the loss on a sound by combining time domain and frequency domain losses.
+#     """
+#     time_domain_weight: float
+#     frequency_domain_weight: float
+#     initial_freq_weight: Optional[float] = None
+#     final_freq_weight: Optional[float] = None
+#     transition_steps: Optional[int] = None
+#     state_update_function: Optional[Callable] = None
+
+#     @staticmethod
+#     @jax.jit
+#     def _compute_adaptive_weight(current_step, initial_weight, final_weight, transition_steps):
+#         """JIT-compiled helper for computing adaptive weight"""
+#         alpha = jnp.minimum(current_step / transition_steps, 1.0)
+#         return (1 - alpha) * initial_weight + alpha * final_weight
+
+#     @staticmethod
+#     @jax.jit
+#     def _compute_losses(inr_values, pressure_values):
+#         """JIT-compiled helper for computing time and frequency domain losses"""
+#         # Time domain loss
+#         time_loss = mse_loss(inr_values, pressure_values)
+        
+#         # Frequency domain loss
+#         inr_fft = jax.vmap(jnp.fft.fft)(inr_values)
+#         true_fft = jax.vmap(jnp.fft.fft)(pressure_values)
+#         freq_loss = mse_loss(jnp.abs(inr_fft), jnp.abs(true_fft))
+        
+#         return time_loss, freq_loss
+
+#     def __call__(self, inr: eqx.Module, locations: tuple[jax.Array, jax.Array], state: Optional[eqx.nn.State] = None) -> tuple[float, Optional[eqx.nn.State]]:
+#         time_points, pressure_values = locations
+#         if len(time_points.shape) < 3:
+#             time_points = time_points[..., None]
+        
+#         # Update state if needed
+#         if state is not None and self.state_update_function is not None:
+#             inr, state = self.state_update_function(inr, state)
+
+#         # Get current step from state or initialize it
+#         current_step = state.get('current_step', 0) if state is not None else 0
+
+#         # Evaluate INR at time points (using vmap for efficiency)
+#         inr_values = jax.vmap(jax.vmap(inr))(time_points)
+#         inr_values = jnp.squeeze(inr_values, axis=-1)
+
+#         # Compute losses using JIT-compiled helper
+#         time_loss, freq_loss = self._compute_losses(inr_values, pressure_values)
+
+#         # Calculate frequency weight
+#         if None not in (self.initial_freq_weight, self.final_freq_weight, self.transition_steps):
+#             freq_weight = self._compute_adaptive_weight(
+#                 current_step, 
+#                 self.initial_freq_weight, 
+#                 self.final_freq_weight, 
+#                 self.transition_steps
+#             )
+            
+#             # Update state with new step count
+#             if state is None:
+#                 state = {'current_step': current_step + 1}
+#             else:
+#                 state = {**state, 'current_step': current_step + 1}
+#         else:
+#             freq_weight = self.frequency_domain_weight
+
+#         # Combine losses with weights
+#         total_loss = self.time_domain_weight * time_loss + freq_weight * freq_loss
+
+#         return total_loss, state
+
+
+
+
+
+
+
+# class SoundLossEvaluator(eqx.Module):
+#     """ 
+#     Evaluate the loss on a sound by combining time domain and frequency domain losses.
+#     The time domain loss measures how well the INR matches the original pressure values.
+#     The frequency domain loss measures how well the INR matches the frequency components
+#     obtained via FFT.
+
+#     :parameter time_domain_weight: Weight for the loss in time domain
+#     :parameter initial_freq_weight: Initial weight for frequency domain loss
+#     :parameter final_freq_weight: Weight for frequency domain loss after transition
+#     :parameter transition_steps: Total number of steps after which freq weight changes
+#     :parameter state_update_function: Optional function to update the state of the loss evaluator
+#     """
+#     time_domain_weight: float
+#     initial_freq_weight: float
+#     final_freq_weight: float
+#     transition_steps: int
+#     state_update_function: Optional[Callable] = None
+
+#     def __call__(self, inr: eqx.Module, locations: tuple[jax.Array, jax.Array], state: Optional[eqx.nn.State] = None) -> tuple[float, Optional[eqx.nn.State]]:
+#         """
+#         Evaluate combined time and frequency domain loss between INR output and true signal.
+
+#         :param inr: The INR module to evaluate
+#         :param locations: Tuple of (time_points, pressure_values) from SoundSampler
+#         :param state: Optional state for stateful INRs
+#         :return: Tuple of (total_loss, updated_state) if state provided, else (total_loss, None)
+#         """
+#         time_points, pressure_values = locations
+#         if len(time_points.shape) < 3:
+#             time_points = time_points[..., None]
+        
+#         # Update state if needed
+#         if state is not None and self.state_update_function is not None:
+#             inr, state = self.state_update_function(inr, state)
+
+#         # Get current step from state or initialize it
+#         current_step = state.get('current_step', 0) if state is not None else 0
+
+#         # Evaluate INR at time points - vmap over batch and window dimensions
+#         inr_values = jax.vmap(jax.vmap(inr))(time_points)
+#         inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
+
+#         # Calculate time domain MSE loss
+#         time_loss = mse_loss(inr_values, pressure_values)
+
+#         # Calculate FFT for both signals - vmap over batch dimension
+#         inr_fft = jax.vmap(jnp.fft.fft)(inr_values)
+#         true_fft = jax.vmap(jnp.fft.fft)(pressure_values)
+
+#         # Calculate frequency domain loss using magnitudes
+#         freq_loss = mse_loss(jnp.abs(inr_fft), jnp.abs(true_fft))
+
+#         # Determine frequency weight based on current step
+#         freq_weight = self.final_freq_weight if current_step >= self.transition_steps // 2 else self.initial_freq_weight
+
+#         # Update step count in state
+#         if state is None:
+#             state = {'current_step': current_step + 1}
+#         else:
+#             state = {**state, 'current_step': current_step + 1}
+
+#         # Combine losses with weights
+#         total_loss = self.time_domain_weight * time_loss + freq_weight * freq_loss
+
+#         return total_loss, state
     
 
-class SDFLossEvaluator(eqx.Module):
-    """ 
-    Evaluates the loss for the sdf values, the intersection values, the normal values, and the gradient values
-    as per the SIREN paper and code (https://github.com/vsitzmann/siren/blob/master/loss_functions.py)
-    """
-    state_update_function: Optional[Callable] = None
 
-    def __call__(self, inr: eqx.Module, batch: tuple[jax.Array, jax.Array, jax.Array, jax.Array], state: Optional[eqx.nn.State] = None):
-        """
-        Compute the SDF loss for a batch of points.
+    
 
-        Args:
-            inr: The INR module representing the SDF
-            batch: Tuple of (coords, normals, sdf_values) from SDFSampler
-            state: Optional state for stateful INRs
 
-        Returns:
-            Tuple of (loss, state) where loss is a jax.Array containing the individual loss components
-            [sdf_loss, intersection_loss, normal_loss, gradient_loss]
-        """
-        coords, gt_normals, gt_sdf_values = batch
-        
-        inr_wrapped = self.wrap_inr(inr)
-
-        if state is not None:
-            
-            inr_grad = eqx.filter_grad(inr_wrapped)
-            grad_val = jax.vmap(inr_grad, (0, None))(coords, state)
-            pred_val = jax.vmap(inr_wrapped, (0, None))(coords, state)
-        else:
-            inr_grad = eqx.filter_grad(inr_wrapped)
-            grad_val = jax.vmap(inr_grad)(coords)
-            pred_val = jax.vmap(inr_wrapped)(coords)
-
-        loss = sdf_loss(gt_normals, gt_sdf_values, pred_val, grad_val)
-        if self.state_update_function is not None:  # update state if necessary
-            # this is e.g. for the progressive training in the integer lattice mapping
-            state = self.state_update_function(state, inr)
-            
-        return loss, state
-
-    @staticmethod
-    def wrap_inr(inr):
-        def wrapped(*args, **kwargs):
-            out = inr(*args, **kwargs)
-            if isinstance(out, tuple):
-                out = out[0]
-            out = out.squeeze()
-            return out
-
-        return wrapped
+#I want to add a parameter which chnages the frequency_domain_weight value at half the number of total steps.  
 
 class SoundLossEvaluator(eqx.Module):
     """ 
@@ -285,42 +386,3 @@ class SoundLossEvaluator(eqx.Module):
             state = self.state_update_function(state, inr)
 
         return total_loss, state
-
-
-class NeRFLossEvaluator(nerf_utils.Renderer):
-
-    parallel_batch_size: int
-    state_update_function: Optional[Callable] = None
-
-    def __call__(self, nerf_model: NeRF, batch:tuple[jax.Array, jax.Array, jax.Array, jax.Array], state:Optional[eqx.nn.State] = None):
-        ray_origins, ray_directions, prng_key_or_keys, ground_truth = batch
-        # give each batch element its own key
-        if prng_key_or_keys.shape[0] != ray_origins.shape[0]:
-            prng_keys = jax.random.split(prng_key_or_keys, num=ray_origins.shape[0])
-        else:
-            prng_keys = prng_key_or_keys
-        
-        # render each pixel
-        if state is not None:
-            results = jax.lax.map(
-                lambda ro_rd_k: self.render_nerf_pixel(nerf_model, *ro_rd_k, state),
-                (ray_origins, ray_directions, prng_keys),
-                batch_size=self.parallel_batch_size
-            )
-        else:
-            results = jax.lax.map(
-                lambda ro_rd_k: self.render_nerf_pixel(nerf_model, *ro_rd_k),
-                (ray_origins, ray_directions, prng_keys),
-                batch_size=self.parallel_batch_size
-            )
-        
-        coarse_predictions = results["coarse_rgb"]
-        fine_predictions = results["fine_rgb"]
-
-        if self.state_update_function is not None:  # update state if necessary
-            # this is e.g. for the progressive training in the integer lattice mapping
-            state = self.state_update_function(state, nerf_model)
-
-        return jnp.square(coarse_predictions - ground_truth).mean() + jnp.square(fine_predictions - ground_truth).mean(), state
-
-

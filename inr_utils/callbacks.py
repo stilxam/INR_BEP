@@ -129,3 +129,37 @@ class AudioMetricsCallback(Callback):
     def get_final_audio(self):
         """Return the final reconstructed audio array."""
         return self.final_audio
+    
+    
+@register_type
+class AudioMetricsWithEarlyStoppingCallback(AudioMetricsCallback):
+    """Extension of AudioMetricsCallback with early stopping capability"""
+    
+    def __init__(self, 
+                 metric_collector: MetricCollector,
+                 print_metrics: bool = True,
+                 print_frequency: int = 100,
+                 patience: int = 1000,
+                 min_delta: float = 0.001,
+                 monitor: str = 'audio_mse'):
+        super().__init__(metric_collector, print_metrics, print_frequency)
+        self.patience = patience
+        self.min_delta = min_delta
+        self.monitor = monitor
+        self.best_value = float('inf')
+        self.wait = 0
+        
+    def __call__(self, step, loss, inr, state, optimizer_state):
+        metrics = super().__call__(step, loss, inr, state, optimizer_state)
+        
+        if metrics and self.monitor in metrics:
+            current = metrics[self.monitor]
+            if current < self.best_value - self.min_delta:
+                self.best_value = current
+                self.wait = 0
+            else:
+                self.wait += 1
+                if self.wait >= self.patience:
+                    raise StopIteration("Early stopping triggered")
+        
+        return metrics

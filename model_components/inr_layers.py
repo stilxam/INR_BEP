@@ -216,6 +216,7 @@ class SirenLayer(INRLayer):
         """
         activation_kwargs = cls._check_keys(activation_kwargs)
         w0 = activation_kwargs['w0']
+        
 
         w_key, b_key = jax.random.split(key)
 
