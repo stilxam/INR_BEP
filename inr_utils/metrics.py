@@ -463,7 +463,7 @@ class SDFReconstructor(eqx.Module):
     batch_size: int
     mesh_name: str
 
-    def __init__(self, inr: Callable, state: Optional[eqx.nn.State] = None, mesh_name: str = "sdf",
+    def __init__(self, inr: Callable, state: Optional[eqx.nn.State] = None,
                  resolution: int = 100, batch_size: int = 1000):
         self.inr = self.wrap_inr(inr)
         self.state = state
