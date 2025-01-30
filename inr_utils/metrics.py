@@ -22,7 +22,7 @@ import librosa
 import plotly.graph_objects as go
 import trimesh
 from pathlib import Path
-from skimage.measure import marching_cubes
+import skimage
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
@@ -30,7 +30,8 @@ from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise,
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 from inr_utils.sdf import SDFDataLoader
-from common_jax_utils.metrics import LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
+from common_jax_utils.metrics import \
+    LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
 
 import matplotlib.pyplot as plt
 
@@ -394,6 +395,7 @@ class JaccardIndexSDF(Metric):
             self,
             target_function: eqx.Module,
             grid_resolution: Union[int, tuple[int, ...]],
+            batch_size: int = 1024,
             num_dims: int = 3  # Default to 3D for SDFs
     ):
         """
@@ -415,7 +417,7 @@ class JaccardIndexSDF(Metric):
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
 
         self.target_inside = target_function(self.grid_points)
-
+        self.batch_size = batch_size
 
     def compute(self, **kwargs):
         inr = kwargs['inr']
@@ -423,8 +425,9 @@ class JaccardIndexSDF(Metric):
 
         inr = self.wrap_inr(inr)
 
-        pred_values = inr(self.grid_points)
-
+        # pred_values = inr(self.grid_points)
+        # pred_values = jax.vmap(inr)(self.grid_points)
+        pred_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
         # Convert to occupancy grids (inside = True, outside = False)
         pred_inside = pred_values <= 0
 
@@ -452,31 +455,32 @@ class JaccardIndexSDF(Metric):
         return wrapped
 
 
-
 class SDFReconstructor(Metric):
     """
     Reconstructs the SDF of a mesh from an INR
     """
     required_kwargs = set({'inr'})
 
-
-
     def __init__(self,
                  resolution: int = 100,
+                 batch_size: int = 1024
                  ):
         self.frequency = MetricFrequency('every_n_batches')  # Default frequency
         self.resolution = resolution
+        self.batch_size = batch_size
 
     # def __call__(self, *args, **kwargs) -> dict:
-    def compute(self, **kwargs) ->dict:
+    def compute(self, **kwargs) -> dict:
         inr = kwargs['inr']
         inr = self.wrap_inr(inr)
 
         state = kwargs.get("state", None)
 
         grid = make_lin_grid(-1, 1, self.resolution, 3)
+        grid = grid.reshape((-1, 3))
 
-        sdf_values = inr(grid)
+        # sdf_values = jax.vmap(inr)(grid)
+        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
         # batched_grid = grid.reshape((-1, self.batch_size, 3))
         # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
         # sdf_values = batched_sdf_values.reshape((-1, 1))
@@ -485,14 +489,66 @@ class SDFReconstructor(Metric):
             y=grid[:, 1],
             z=grid[:, 2],
             value=sdf_values,
-            isomin=-1/self.resolution,
-            isomax=1/self.resolution,
+            isomin=-0.1,
+            isomax=0.1,
             surface_count=1,
             caps=dict(x_show=False, y_show=False, z_show=False)
         ))
         return {"Zero Level Set": fig}
 
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
 
+        return wrapped
+
+
+class MarchingCube(Metric):
+    """
+    Reconstructs the SDF of a mesh from an INR
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(self,
+                 resolution: int = 100,
+                 batch_size: int = 1024
+                 ):
+        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
+        self.resolution = resolution
+        self.batch_size = batch_size
+
+    # def __call__(self, *args, **kwargs) -> dict:
+    def compute(self, **kwargs) -> dict:
+        inr = kwargs['inr']
+        inr = self.wrap_inr(inr)
+
+        state = kwargs.get("state", None)
+
+        grid = make_lin_grid(-1, 1, self.resolution, 3)
+        grid = grid.reshape((-1, 3))
+
+        # sdf_values = jax.vmap(inr)(grid)
+        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
+        # batched_grid = grid.reshape((-1, self.batch_size, 3))
+        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
+        sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
+        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+
+        fig = go.Figure(go.Mesh3d(
+            x=vertices[:, 0],
+            y=vertices[:, 1],
+            z=vertices[:, 2],
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+        ))
+        return {"Zero Level Set": fig}
+    
 
 
     @staticmethod
