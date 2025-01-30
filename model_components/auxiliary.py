@@ -9,11 +9,10 @@ from functools import wraps
 import jax
 from jax import numpy as jnp
 
-
 ANNOT = Union[type, GenericAlias, TypeAlias, NewType]
 
 
-def value_error_on_all_but_allowed_keys(activation_kwargs:dict, *allowed_keys:Union[str, tuple[str, ANNOT]]):
+def value_error_on_all_but_allowed_keys(activation_kwargs: dict, *allowed_keys: Union[str, tuple[str, ANNOT]]):
     """ 
     Checks whether the keys of the activation_kwargs dict match the allowed_keys
     :param activation_kwargs: dictionary the keys of which should be checked against allowed_keys
@@ -30,7 +29,8 @@ def value_error_on_all_but_allowed_keys(activation_kwargs:dict, *allowed_keys:Un
     if (used_keys := set(activation_kwargs)) != allowed_keys:
         raise ValueError(f"activation_kwargs should have keys {allowed_keys}. Got {used_keys} instead.")
 
-def filter_allowed_keys_or_raise_value_error(activation_kwargs:dict, *required_keys:Union[str, tuple[str, ANNOT]]):
+
+def filter_allowed_keys_or_raise_value_error(activation_kwargs: dict, *required_keys: Union[str, tuple[str, ANNOT]]):
     """ 
     Checks that all required keys are present in activation_kwargs
     Raises a ValueError if any required keys are missing from activation_kwargs
@@ -43,6 +43,7 @@ def filter_allowed_keys_or_raise_value_error(activation_kwargs:dict, *required_k
         raise ValueError(f"Missing keys: {missing_keys}. Got {activation_kwargs} but need {required_keys}.")
     return {key: value for key, value in activation_kwargs.items() if key in required_keys}
 
+
 def real_part(obj: Union[Callable, jax.Array]):
     """
     take the real part of a complex object
@@ -52,10 +53,13 @@ def real_part(obj: Union[Callable, jax.Array]):
     """
     if not callable(obj):
         return jnp.real(obj)
+
     @wraps(obj)
     def real_func(x, *args, **kwargs):
         return jnp.real(obj(x, *args, **kwargs))
+
     return real_func
+
 
 def imaginary_part(obj: Union[Callable, jax.Array]):
     """
@@ -66,7 +70,16 @@ def imaginary_part(obj: Union[Callable, jax.Array]):
     """
     if not callable(obj):
         return jnp.imag(obj)
+
     @wraps(obj)
     def real_func(x, *args, **kwargs):
         return jnp.imag(obj(x, *args, **kwargs))
+
     return real_func
+
+
+def real_scalar(x):
+    """
+    return the real part of the first element
+    """
+    return jnp.real(x[0])
