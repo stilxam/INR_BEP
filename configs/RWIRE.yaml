@@ -1,0 +1,51 @@
+---
+# the arguments in here will be varied
+activation_kwargs:
+    s0: [0.1, 0.1, 0.1, 1.0, 1.0, 1.0, 5.0, 5.0, 5.0]
+    w0: [1.0, 10.0, 30.0, 1.0, 10.0, 30.0, 1.0, 10.0, 30.0]
+
+learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4]
+
+---
+# shared configuration
+architecture: ./model_components
+model_type: inr_modules.MLPINR.from_config
+model_config:
+  in_size: 2
+  out_size: 3
+  hidden_size: 256
+  num_layers: 5
+  layer_type: inr_layers.RealWIRE
+  num_splits: 1
+
+trainer_module: ./inr_utils/
+trainer_type: training.train_inr_scan
+
+loss_evaluator: losses.PointWiseLossEvaluator
+target_function: images.ContinuousImage
+target_function_config:
+  image: ./example_data/parrot.png
+  scale_to_01: true
+  interpolation_method: images.make_piece_wise_constant_interpolation
+loss_function: losses.scaled_mse_loss
+
+sampler: sampling.GridSubsetSampler
+sampler_config:
+  size: [2040, 1356]
+  batch_size: 2000
+  allow_duplicates: false
+
+optimizer: adam
+steps: 40000
+
+---
+# post-processing configuration
+components_module: ./inr_utils/
+post_processor_type: post_processing.PostProcessor
+metrics: 
+  - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
+  - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
+storage_directory: results/real_gabor_experiment
+wandb_kwargs:
+  project: inr_edu_24
+  group: real_gabor_sweep
