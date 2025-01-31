@@ -31,8 +31,16 @@ wandblogin="$(< ./wandb.login)"  # password stored in a file, don't add this fil
 wandb login "$wandblogin"
 
 
+
 echo 'Starting new experiment!';
-python run_parallel.py --config=./configs/example.yaml  # you can put more lines like this one after
+python run_parallel.py --config=./configs/example.yaml
+python run_parallel.py --config=./configs/FINERk.yaml
+python run_parallel.py --config=./configs/FINERw0.yaml
+python run_parallel.py --config=./configs/quadratic.yaml
+python run_parallel.py --config=./configs/hosc.yaml
+python run_parallel.py --config=./configs/gaussian_bump.yaml
+
+# you can put more lines like this one after
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
 # so it makes sense to do a couple of batches in sequence in the same script
