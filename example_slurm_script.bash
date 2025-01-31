@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=my_snellius_account
+#SBATCH --account=tesr82932
 #SBATCH --time=1:00:00
 #SBATCH -p gpu
 #SBATCH -N 1
@@ -25,9 +25,9 @@ unset __conda_setup
 # <<< conda initialize <<<
 
 conda init bash
-conda activate inr_edu_24  # conda environment name
+conda activate snel_bep  # conda environment name
 
-wandblogin="$(< ../wandb.login)"  # password stored in a file, don't add this file to your git repo!
+wandblogin="$(< ./wandb.login)"  # password stored in a file, don't add this file to your git repo!
 wandb login "$wandblogin"
 
 
