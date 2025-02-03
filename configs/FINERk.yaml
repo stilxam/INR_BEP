@@ -1,12 +1,11 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    #bias_k: [-20.0, -15.0, -10.0, -5.0, -1.0, 1.0, 5.0, 10.0, 15.0, 20.0]
-    bias_k: [[-1.0, 1.0], [-5.0, 5.0], [-10.0, 10.0], [-20.0, 20.0]]
-    w0: [30., 30., 30., 30., 30., 30., 30., 30., 30., 30., 30., 30.]  # fixed w0 value
+    bias_k: [1.0, 3.0, 5.0, 7.5, 10.0, 10.0, 13.0, 15.0, 17.5, 20.0]
+    # bias_k: [[-1.0, 1.0], [-5.0, 5.0], [-10.0, 10.0], [-20.0, 20.0]]
+    w0: [30., 30., 30., 30., 30., 30., 30., 30., 30., 30.]  # fixed w0 value
 
-learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
-
+learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]
 ---
 # shared configuration
 architecture: ./model_components
@@ -16,7 +15,7 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.FINEERLayer
+  layer_type: inr_layers.FinerLayer
   num_splits: 1
 
 trainer_module: ./inr_utils/

@@ -8,6 +8,7 @@
 #SBATCH --output=R-%x.%j.out
 module load 2023
 module load Miniconda3/23.5.2-0
+#source /sw/arch/RHEL8/EB_production/2023/software/Miniconda3/23.5.2-0/etc/profile.d/conda.sh
 
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
@@ -30,16 +31,20 @@ conda activate snel_bep  # conda environment name
 wandblogin="$(< ./wandb.login)"  # password stored in a file, don't add this file to your git repo!
 wandb login "$wandblogin"
 
-
+#if using audio files, run this first
+# python convert_audio_to_npy.py
 
 echo 'Starting new experiment!';
-python run_parallel.py --config=./configs/example.yaml
-python run_parallel.py --config=./configs/FINERk.yaml
-python run_parallel.py --config=./configs/FINERw0.yaml
-python run_parallel.py --config=./configs/quadratic.yaml
+# python run_parallel.py --config=./configs/audioex.yaml
+# python run_parallel.py --config=./configs/example.yaml
+# python run_parallel.py --config=./configs/FINERk.yaml
+# python run_parallel.py --config=./configs/FINERkt.yaml
+# python run_parallel.py --config=./configs/FINERkt2.yaml   
+# python run_parallel.py --config=./configs/FINERw0.yaml
+# python run_parallel.py --config=./configs/quadratic.yaml
 python run_parallel.py --config=./configs/hosc.yaml
 python run_parallel.py --config=./configs/gaussian_bump.yaml
-
+ 
 # you can put more lines like this one after
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
