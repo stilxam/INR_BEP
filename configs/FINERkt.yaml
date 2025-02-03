@@ -1,10 +1,11 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    inverse_scale: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 20.0]
+    bias_k: [1.0, 3.0, 5.0, 7.5, 10.0, 10.0, 13.0, 15.0, 17.5, 20.0]
+    # bias_k: [[-1.0, 1.0], [-5.0, 5.0], [-10.0, 10.0], [-20.0, 20.0]]
+    w0: [20., 20., 20., 20., 20., 20., 20., 20., 20., 20.]  # fixed w0 value
 
-learning_rate: [1.e-4, 1.5e-4, 3.e-4, 5.e-4, 1.e-3, 1.5e-3, 3.e-3, 5.e-3]
-
+learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]
 ---
 # shared configuration
 architecture: ./model_components
@@ -14,7 +15,7 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.GaussianINRLayer
+  layer_type: inr_layers.FinerLayer
   num_splits: 1
 
 trainer_module: ./inr_utils/
@@ -44,7 +45,13 @@ post_processor_type: post_processing.PostProcessor
 metrics: 
   - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
-storage_directory: results/gaussian_bump_experiment
+storage_directory: results/fineer_bias_k_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: gaussian_bump_sweep 
+  group: fineer_bias_k_sweep
+
+target_function: images.ContinuousImage
+target_function_config:
+  image: ./example_data/parrot.png
+  scale_to_01: true
+  interpolation_method: images.make_piece_wise_constant_interpolation

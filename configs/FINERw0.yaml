@@ -3,7 +3,7 @@
 activation_kwargs:
     w0: [1., 5., 10., 15., 20., 25., 30., 35., 40., 45., 50., 55.]
 
-learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
+learning_rate: [1.e-4, 4.e-4, 1.e-4, 4.e-4, 1.e-4, 4.e-4, 1.e-4, 4.e-4, 1.e-4, 4.e-4, 1.e-4, 4.e-4]
 
 ---
 # shared configuration
@@ -14,7 +14,7 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.FINEERLayer
+  layer_type: inr_layers.FinerLayer
   num_splits: 1
 
 trainer_module: ./inr_utils/
