@@ -100,3 +100,13 @@ def finer_activation(x, w0):
     :return: output array after applying variable-periodic function
     """
     return jnp.sin((jnp.abs(x) + 1) * w0 * x)
+
+
+def laplacian(x:jax.Array, a:float):
+    """
+    e^(-|x|/a)
+    :param x: jax.Array
+    :param a: float, for which values >1 make the function "flatter" and values <1 make it "sharper"
+    :returns: jax.Array where the function is applied
+    """
+    return jnp.exp(-jnp.absolute(x)/a)

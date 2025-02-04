@@ -377,3 +377,12 @@ def evaluate_on_grid_vmapped(func:Callable, grid:jax.Array)->jax.Array:
     results = jax.vmap(func)(flattened_grid)
     target_shape = grid_shape[:-1] + results.shape[1:]
     return jnp.reshape(results, target_shape)
+
+
+def rgb_to_grayscale(rgb_image:jax.Array):
+    """
+    turn an rgb image, array with shape (h, w, 3), into grayscale image array with shape (h, w)
+    """
+    gray_image = 0.299*rgb_image[:,:,0] + 0.587*rgb_image[:,:,1] + 0.114*rgb_image[:,:,2]
+    gray_image = gray_image.astype(jnp.uint8)  
+    return gray_image

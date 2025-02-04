@@ -767,8 +767,7 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
     def out_size(self, in_size:int)->int:
         return 2*self.embedding_matrix.shape[0]*in_size
 
-    # not sure if that's a static method
-    # @staticmethod
+    @staticmethod
     def update_state(self, state, nr_increments):
 
         current_alpha = state.get(self._alpha_state_index)
@@ -783,10 +782,7 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
     def __call__(self, x:jax.Array, state: eqx.nn.State, nr_increments: int, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
         
         embedding_matrix = self.weigh_embedding_matrix(state)
-        # not sure if to first get embedding matrix, then update state
-        state = self.update_state(state, nr_increments)
 
-        # not certain why we flatten
         encoding = jnp.concatenate([jnp.cos(2*jnp.pi*(x @ embedding_matrix.T)), 
                                     jnp.sin(2*jnp.pi*(x @ embedding_matrix.T))], 
                                     axis=-1).flatten()

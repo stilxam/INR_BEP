@@ -9,3 +9,9 @@ wandb
 !/flax_exp/results/
 /flax_exp/
 /example_data/
+/DIV2k/
+/DIV2k_entropy_5p_25p/
+/DIV2k_entropy_25p_75p/
+/DIV2k_entropy_75p_95p/
+/DIV2k_entropy_bottom_5p/
+/DIV2k_entropy_top_5p/
