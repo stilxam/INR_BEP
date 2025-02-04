@@ -3,7 +3,7 @@
 activation_kwargs:
     w0: [15., 25.]  # Reduced from 12 to 2 combinations
 
-learning_rate: [1.e-4, 1.5e-4]  # Reduced accordingly
+learning_rate: [1.e-5, 1.5e-4]  # Reduced accordingly
 
 ---
 # Same shared configuration as audioex.yaml but with reduced steps
@@ -32,11 +32,11 @@ loss_evaluator: losses.SoundLossEvaluator
 loss_function: losses.SoundLossEvaluator
 loss_evaluator_config:
   time_domain_weight: 1.0
-  frequency_domain_weight: 0.00001
+  frequency_domain_weight: 0.0001
 
 sampler: [sampling.SoundSampler, {
     window_size: 256,
-    batch_size: 64,
+    batch_size: 32,
     allow_pickle: true,
     fragment_length: null,
     sound_fragment: ./example_data/data_gt_bach.npy
@@ -58,38 +58,13 @@ metrics:
       grid_size: null,  # Will use target audio length automatically
       batch_size: 1024,
       sr: 16000,
-      frequency: every_n_batches
+      frequency: every_n_batches,
+      save_path: ./results/local_test/reconstructed_example.wav
     }]
+
+batch_frequency: 1
 
 storage_directory: results/local_test
 wandb_kwargs:
   project: inr_edu_24
   group: local_test
-
-after_step_callback: callbacks.ComposedCallback
-after_step_callback_config:
-  callbacks:
-    - [callbacks.print_loss, {after_every: 10}]
-    - callbacks.report_loss
-    - callbacks.raise_error_on_nan
-    - [callbacks.AudioMetricsWithEarlyStoppingCallback, {
-        metric_collector: [metrics.MetricCollector, {
-          metrics: [[metrics.AudioMetricsOnGrid, {
-            target_audio: ./example_data/data_gt_bach.npy,
-            grid_size: null,  # Will use target audio length automatically
-            batch_size: 1024,
-            sr: 16000,
-            frequency: every_n_batches
-          }]],
-          batch_frequency: 100,
-          epoch_frequency: 1
-        }],
-        print_metrics: true,
-        print_frequency: 100,
-        patience: 100,
-        min_delta: 0.001,
-        monitor: audio_mse,
-        save_path: ./results/local_test/reconstructed_audio.wav
-      }]
-  use_wandb: true
-  show_logs: false 

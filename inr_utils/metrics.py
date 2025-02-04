@@ -23,6 +23,7 @@ import plotly.graph_objects as go
 import trimesh
 from pathlib import Path
 import skimage
+import wandb
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
@@ -281,7 +282,7 @@ class AudioMetricsOnGrid(Metric):
             batch_size: int = 1024,
             sr: int = 16000,
             frequency: str = 'every_n_batches',
-            save_path: Optional[str] = None
+            #save_path: Optional[str] = None
     ):
         """
         Args:
@@ -307,7 +308,7 @@ class AudioMetricsOnGrid(Metric):
         self.target_audio = self.target_audio.astype(np.float32)
 
         self.sr = sr
-        self.save_path = save_path
+        #self.save_path = save_path
         self.frequency = MetricFrequency(frequency)
 
         # Use target audio length if grid_size not specified
@@ -383,25 +384,26 @@ class AudioMetricsOnGrid(Metric):
         original = self.target_audio[:min_len]
         reconstructed = reconstructed[:min_len]
 
+
         # Normalize reconstructed audio to [-1, 1] range
-        reconstructed = reconstructed / np.max(np.abs(reconstructed))
+        # reconstructed = reconstructed / np.max(np.abs(reconstructed))
 
         # Save reconstructed audio if path is provided
-        if self.save_path:
-            try:
-                import soundfile as sf
-                # Ensure the directory exists
-                save_dir = Path(self.save_path).parent
-                save_dir.mkdir(parents=True, exist_ok=True)
+        # if self.save_path:
+        #     try:
+        #         import soundfile as sf
+        #         # Ensure the directory exists
+        #         save_dir = Path(self.save_path).parent
+        #         save_dir.mkdir(parents=True, exist_ok=True)
                 
-                # Save the audio file
-                sf.write(self.save_path, reconstructed, self.sr)
-                print(f"Reconstructed audio saved to: {self.save_path}")
-            except ImportError:
-                print("Warning: soundfile package not installed. Cannot save audio file.")
-                print("Install with: pip install soundfile")
-            except Exception as e:
-                print(f"Warning: Failed to save audio file: {e}")
+        #         # Save the audio file
+        #         sf.write(self.save_path, reconstructed, self.sr)
+        #         print(f"Reconstructed audio saved to: {self.save_path}")
+        #     except ImportError:
+        #         print("Warning: soundfile package not installed. Cannot save audio file.")
+        #         print("Install with: pip install soundfile")
+        #     except Exception as e:
+        #         print(f"Warning: Failed to save audio file: {e}")
 
         # Compute time domain metrics
         mse = np.mean((original - reconstructed) ** 2)
@@ -417,7 +419,7 @@ class AudioMetricsOnGrid(Metric):
             'audio_mse': mse,
             'audio_spectral_convergence': spec_conv,
             'audio_magnitude_error': mag_error,
-            'reconstructed_audio': reconstructed  # Add reconstructed audio to metrics
+            'reconstructed_audio': wandb.Audio(reconstructed, sample_rate=self.sr)  # Add reconstructed audio to metrics
         }
 
         return metrics
