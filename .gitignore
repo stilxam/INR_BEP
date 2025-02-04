@@ -15,3 +15,8 @@ wandb
 /DIV2k_entropy_75p_95p/
 /DIV2k_entropy_bottom_5p/
 /DIV2k_entropy_top_5p/
+/results
+/synthetic_scenes
+.vscode
+synthetic_scenes.zip
+/example_data
