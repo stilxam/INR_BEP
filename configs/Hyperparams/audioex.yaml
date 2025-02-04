@@ -78,7 +78,7 @@ after_step_callback_config:
     - [callbacks.AudioMetricsWithEarlyStoppingCallback, {
         metric_collector: [metrics.MetricCollector, {
           metrics: [[metrics.AudioMetricsOnGrid, {
-            target_audio: ./example_data/data_gt_bach.wav,
+            target_audio: ./example_data/data_gt_bach.npy,
             grid_size: 2040,
             batch_size: 1024,
             sr: 16000,

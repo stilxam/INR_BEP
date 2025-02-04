@@ -1,0 +1,95 @@
+---
+# Reduced parameter combinations for testing
+activation_kwargs:
+    w0: [15., 25.]  # Reduced from 12 to 2 combinations
+
+learning_rate: [1.e-4, 1.5e-4]  # Reduced accordingly
+
+---
+# Same shared configuration as audioex.yaml but with reduced steps
+architecture: ./model_components
+model_type: inr_modules.CombinedINR
+model_config:
+  in_size: 1
+  out_size: 1
+  terms:
+    - [inr_modules.MLPINR.from_config, {
+        hidden_size: 256,
+        num_layers: 5,
+        layer_type: inr_layers.SirenLayer,
+        num_splits: 1,
+        use_complex: false,
+        initialization_scheme: initialization_schemes.siren_scheme,
+        positional_encoding_layer: [inr_layers.ClassicalPositionalEncoding.from_config, {
+          num_frequencies: 10
+        }]
+      }]
+
+trainer_module: ./inr_utils/
+trainer_type: training.train_inr_scan
+
+loss_evaluator: losses.SoundLossEvaluator
+loss_function: losses.SoundLossEvaluator
+loss_evaluator_config:
+  time_domain_weight: 1.0
+  frequency_domain_weight: 0.00001
+
+sampler: [sampling.SoundSampler, {
+    window_size: 256,
+    batch_size: 64,
+    allow_pickle: true,
+    fragment_length: null,
+    sound_fragment: ./example_data/data_gt_bach.npy
+}]
+
+optimizer: adam
+optimizer_config:
+  b1: 0.8
+  b2: 0.999999
+steps: 1000  # Reduced from 20000 for faster testing
+
+---
+# Same post-processing configuration but with reduced metrics frequency
+components_module: ./inr_utils/
+post_processor_type: post_processing.PostProcessor
+metrics: 
+  - [metrics.AudioMetricsOnGrid, {
+      target_audio: ./example_data/data_gt_bach.npy,
+      grid_size: null,  # Will use target audio length automatically
+      batch_size: 1024,
+      sr: 16000,
+      frequency: every_n_batches
+    }]
+
+storage_directory: results/local_test
+wandb_kwargs:
+  project: inr_edu_24
+  group: local_test
+
+after_step_callback: callbacks.ComposedCallback
+after_step_callback_config:
+  callbacks:
+    - [callbacks.print_loss, {after_every: 10}]
+    - callbacks.report_loss
+    - callbacks.raise_error_on_nan
+    - [callbacks.AudioMetricsWithEarlyStoppingCallback, {
+        metric_collector: [metrics.MetricCollector, {
+          metrics: [[metrics.AudioMetricsOnGrid, {
+            target_audio: ./example_data/data_gt_bach.npy,
+            grid_size: null,  # Will use target audio length automatically
+            batch_size: 1024,
+            sr: 16000,
+            frequency: every_n_batches
+          }]],
+          batch_frequency: 100,
+          epoch_frequency: 1
+        }],
+        print_metrics: true,
+        print_frequency: 100,
+        patience: 100,
+        min_delta: 0.001,
+        monitor: audio_mse,
+        save_path: ./results/local_test/reconstructed_audio.wav
+      }]
+  use_wandb: true
+  show_logs: false 

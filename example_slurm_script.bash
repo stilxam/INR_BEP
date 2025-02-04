@@ -49,3 +49,9 @@ python run_parallel.py --config=./configs/gaussian_bump.yaml
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
 # so it makes sense to do a couple of batches in sequence in the same script
+
+
+#Initializing scale factor experiments: 
+
+# echo 'Starting scale factor experiments!';
+# python run_parallel.py --config=./configs/scale_factor_experiment.yaml

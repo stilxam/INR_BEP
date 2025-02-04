@@ -3,11 +3,13 @@ Module containing callbacks for the training.train_inr function.
 """
 import abc
 import pprint
-from typing import Callable, Union, Any
+from typing import Callable, Union, Any, Optional
 from functools import partial
+from pathlib import Path
 
 import jax
 from jax import numpy as jnp
+import numpy as np
 
 from common_dl_utils.metrics import MetricCollector
 from common_dl_utils.type_registry import register_type
@@ -141,25 +143,41 @@ class AudioMetricsWithEarlyStoppingCallback(AudioMetricsCallback):
                  print_frequency: int = 100,
                  patience: int = 1000,
                  min_delta: float = 0.001,
-                 monitor: str = 'audio_mse'):
+                 monitor: str = 'audio_mse',
+                 save_path: str = './reconstructed_audio.wav'):
         super().__init__(metric_collector, print_metrics, print_frequency)
         self.patience = patience
         self.min_delta = min_delta
         self.monitor = monitor
         self.best_value = float('inf')
         self.wait = 0
+        self.save_path = Path(save_path)
+        self.best_audio = None
         
     def __call__(self, step, loss, inr, state, optimizer_state):
         metrics = super().__call__(step, loss, inr, state, optimizer_state)
         
-        if metrics and self.monitor in metrics:
-            current = metrics[self.monitor]
-            if current < self.best_value - self.min_delta:
-                self.best_value = current
-                self.wait = 0
-            else:
-                self.wait += 1
-                if self.wait >= self.patience:
-                    raise StopIteration("Early stopping triggered")
+        if metrics:
+            # Store audio if it's the best model so far
+            if self.monitor in metrics:
+                current = metrics[self.monitor]
+                if current < self.best_value - self.min_delta:
+                    self.best_value = current
+                    self.wait = 0
+                    if 'reconstructed_audio' in metrics:
+                        self.best_audio = metrics['reconstructed_audio']
+                else:
+                    self.wait += 1
+                    if self.wait >= self.patience:
+                        # Save the best audio before stopping
+                        if self.best_audio is not None:
+                            try:
+                                import soundfile as sf
+                                self.save_path.parent.mkdir(parents=True, exist_ok=True)
+                                sf.write(self.save_path, self.best_audio, self.metric_collector.metrics[0].sr)
+                                print(f"Best reconstructed audio saved to: {self.save_path}")
+                            except Exception as e:
+                                print(f"Warning: Failed to save audio file: {e}")
+                        raise StopIteration("Early stopping triggered")
         
         return metrics

@@ -32,7 +32,10 @@ from inr_utils.states import handle_state
 from inr_utils.sdf import SDFDataLoader
 from common_jax_utils.metrics import \
     LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
+from common_jax_utils.decorators import load_arrays  # Add this import if not already present
 
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 
 
@@ -273,26 +276,43 @@ class AudioMetricsOnGrid(Metric):
 
     def __init__(
             self,
-            target_audio: np.ndarray,
-            grid_size: int,
+            target_audio: Union[str, np.ndarray],
+            grid_size: Optional[int] = None,
             batch_size: int = 1024,
             sr: int = 16000,
             frequency: str = 'every_n_batches',
-            save_path: Optional[str] = None  # New parameter for saving audio
+            save_path: Optional[str] = None
     ):
         """
         Args:
-            target_audio: Original audio signal to compare against
+            target_audio: Path to .npy file or numpy array containing original audio signal
             grid_size: Number of time points to evaluate
             batch_size: Size of batches for evaluation
             sr: Sampling rate of the audio
             frequency: How often to compute metrics
             save_path: Path to save reconstructed audio (optional)
         """
-        self.target_audio = target_audio
+        # Load target audio if it's a path
+        if isinstance(target_audio, str):
+            try:
+                self.target_audio = np.load(target_audio)
+            except Exception as e:
+                raise ValueError(f"Failed to load target audio from path {target_audio}: {e}")
+        else:
+            self.target_audio = target_audio
+
+        # Convert target_audio to float32 if needed
+        if not isinstance(self.target_audio, np.ndarray):
+            raise ValueError("target_audio must be a numpy array or path to .npy file")
+        self.target_audio = self.target_audio.astype(np.float32)
+
         self.sr = sr
         self.save_path = save_path
         self.frequency = MetricFrequency(frequency)
+
+        # Use target audio length if grid_size not specified
+        if grid_size is None:
+            grid_size = len(self.target_audio)
 
         # Create time grid for evaluation
         self.grid = jnp.linspace(0, 1, grid_size)
@@ -309,7 +329,6 @@ class AudioMetricsOnGrid(Metric):
 
         @eqx.filter_jit
         def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array):
-            # Ensure grid has correct shape for batching
             grid = grid.reshape(-1)[:, None]  # Make 2D array with shape (n, 1)
             return evaluate_on_grid_batch_wise(inr, grid, batch_size=self._batch_size, apply_jit=False)
 
@@ -369,8 +388,20 @@ class AudioMetricsOnGrid(Metric):
 
         # Save reconstructed audio if path is provided
         if self.save_path:
-            import soundfile as sf
-            sf.write(self.save_audio, reconstructed, self.sr)
+            try:
+                import soundfile as sf
+                # Ensure the directory exists
+                save_dir = Path(self.save_path).parent
+                save_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Save the audio file
+                sf.write(self.save_path, reconstructed, self.sr)
+                print(f"Reconstructed audio saved to: {self.save_path}")
+            except ImportError:
+                print("Warning: soundfile package not installed. Cannot save audio file.")
+                print("Install with: pip install soundfile")
+            except Exception as e:
+                print(f"Warning: Failed to save audio file: {e}")
 
         # Compute time domain metrics
         mse = np.mean((original - reconstructed) ** 2)
