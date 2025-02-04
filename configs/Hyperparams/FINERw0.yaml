@@ -26,6 +26,7 @@ target_function_config:
   image: ./example_data/parrot.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
+  data_index: None
 loss_function: losses.scaled_mse_loss
 
 sampler: sampling.GridSubsetSampler
@@ -54,3 +55,12 @@ target_function_config:
   image: ./example_data/parrot.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
+
+
+  # for some of the metrics
+target_function: images.ContinuousImage
+target_function_config:
+  image: ./example_data/parrot.png
+  scale_to_01: true
+  interpolation_method: images.make_piece_wise_constant_interpolation
+  data_index: None

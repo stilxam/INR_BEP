@@ -28,6 +28,7 @@ target_function_config:
   image: ./example_data/parrot.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
+  data_index: None
 loss_function: losses.scaled_mse_loss
 
 sampler: sampling.GridSubsetSampler
@@ -50,3 +51,11 @@ storage_directory: results/real_gabor_experiment
 wandb_kwargs:
   project: inr_edu_24
   group: real_gabor_sweep
+
+  # for some of the metrics
+target_function: images.ContinuousImage
+target_function_config:
+  image: ./example_data/parrot.png
+  scale_to_01: true
+  interpolation_method: images.make_piece_wise_constant_interpolation
+  data_index: None

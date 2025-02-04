@@ -68,3 +68,5 @@ storage_directory: results/local_test
 wandb_kwargs:
   project: inr_edu_24
   group: local_test
+
+

@@ -36,14 +36,14 @@ wandb login "$wandblogin"
 
 echo 'Starting new experiment!';
 # python run_parallel.py --config=./configs/audioex.yaml
-# python run_parallel.py --config=./configs/example.yaml
+python run_parallel.py --config=./configs/Hyperparams/example.yaml
 # python run_parallel.py --config=./configs/FINERk.yaml
 # python run_parallel.py --config=./configs/FINERkt.yaml
 # python run_parallel.py --config=./configs/FINERkt2.yaml   
 # python run_parallel.py --config=./configs/FINERw0.yaml
-# python run_parallel.py --config=./configs/quadratic.yaml
-python run_parallel.py --config=./configs/hosc.yaml
-python run_parallel.py --config=./configs/gaussian_bump.yaml
+# python run_parallel.py --config=./configs/Hyperparams/quadratic.yaml
+# python run_parallel.py --config=./configs/Hyperparams/hosc.yaml
+# python run_parallel.py --config=./configs/Hyperparams/gaussian_bump.yaml
  
 # you can put more lines like this one after
 # to do more groups of experements in sequence. 
