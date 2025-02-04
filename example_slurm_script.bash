@@ -36,14 +36,21 @@ wandb login "$wandblogin"
 
 echo 'Starting new experiment!';
 # python run_parallel.py --config=./configs/audioex.yaml
-python run_parallel.py --config=./configs/Hyperparams/example.yaml
-# python run_parallel.py --config=./configs/FINERk.yaml
-# python run_parallel.py --config=./configs/FINERkt.yaml
-# python run_parallel.py --config=./configs/FINERkt2.yaml   
-# python run_parallel.py --config=./configs/FINERw0.yaml
+# python run_parallel.py --config=./configs/Hyperparams/example.yaml
+# python run_parallel.py --config=./configs/Hyperparams/FINERk.yaml
+# python run_parallel.py --config=./configs/Hyperparams/FINERkt.yaml
+# python run_parallel.py --config=./configs/Hyperparams/FINERkt2.yaml   
+# python run_parallel.py --config=./configs/Hyperparams/FINERw0.yaml
 # python run_parallel.py --config=./configs/Hyperparams/quadratic.yaml
+# python run_parallel.py --config=./configs/Hyperparams/multi_quadratic.yaml
 # python run_parallel.py --config=./configs/Hyperparams/hosc.yaml
 # python run_parallel.py --config=./configs/Hyperparams/gaussian_bump.yaml
+# python run_parallel.py --config=./configs/Hyperparams/super_gaussian.yaml
+# python run_parallel.py --config=./configs/Hyperparams/exp_sin.yaml
+# python run_parallel.py --config=./configs/Hyperparams/CWIRE.yaml
+# python run_parallel.py --config=./configs/Hyperparams/RWIRE.yaml
+# python run_parallel.py --config=./configs/Hyperparams/laplacian.yaml
+
  
 # you can put more lines like this one after
 # to do more groups of experements in sequence. 
@@ -53,5 +60,7 @@ python run_parallel.py --config=./configs/Hyperparams/example.yaml
 
 #Initializing scale factor experiments: 
 
-# echo 'Starting scale factor experiments!';
-# python run_parallel.py --config=./configs/scale_factor_experiment.yaml
+echo 'Starting scale factor experiments!';
+python run_parallel.py --config=./configs/InitialScheme/example_siren.yaml
+# pyhton run_parallel.py --config=./configs/InitialScheme/finer_scheme.yaml
+# pyhton run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml
