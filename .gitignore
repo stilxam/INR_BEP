@@ -23,3 +23,4 @@ example_data/*.xyz
 *.eqx
 
 /reconstructed_audio.wav
+/results
