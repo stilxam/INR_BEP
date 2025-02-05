@@ -22,7 +22,7 @@ import librosa
 import plotly.graph_objects as go
 import skimage
 
-from common_dl_utils.metrics import Metric, MetricFrequency
+from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
     make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
