@@ -20,20 +20,14 @@ import PIL
 import numpy as np
 import librosa
 import plotly.graph_objects as go
-import trimesh
-from pathlib import Path
 import skimage
 
-from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
+from common_dl_utils.metrics import Metric, MetricFrequency
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
     make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
-from inr_utils.sdf import SDFDataLoader
-from common_jax_utils.metrics import \
-    LossStandardDeviation  # the last two are just for convenience, to have them available in the same namespace
 
-import matplotlib.pyplot as plt
 
 
 class PlotOnGrid2D(Metric):

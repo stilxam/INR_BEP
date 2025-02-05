@@ -1,7 +1,6 @@
 from collections.abc import Sequence, Mapping
 from typing import Optional
 from secrets import randbelow
-import pprint
 
 import jax
 from jax import numpy as jnp

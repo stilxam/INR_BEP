@@ -1,7 +1,6 @@
 import functools
 
 import jax
-import equinox as eqx
 
 def copy_state(state):
     return jax.tree.map(lambda x: x, state)

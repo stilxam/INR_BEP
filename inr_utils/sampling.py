@@ -7,7 +7,6 @@ Also note that if a sampler is to be used to train a hypernetwork, it should be 
 """
 import abc
 from typing import Union, Optional
-import random
 import os
 
 import numpy as np
@@ -23,8 +22,6 @@ from inr_utils.images import make_lin_grid
 from inr_utils.nerf_utils import SyntheticScenesHelper
 
 from pathlib import Path
-import pymeshlab
-import numpy as np
 
 
 @register_type

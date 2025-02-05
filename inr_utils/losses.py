@@ -2,7 +2,6 @@
 Some common loss functions for training INRs.
 """
 from typing import Optional, Callable, Union
-import functools
 
 import jax
 from jax import numpy as jnp

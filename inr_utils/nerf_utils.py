@@ -1,7 +1,7 @@
 """
 The rendering utilities are based on the jaxnerf implementation from google-research.
 """
-from typing import Optional, Generator  # ,ClassVar
+from typing import Optional  # ,ClassVar
 import os
 # import multiprocessing
 

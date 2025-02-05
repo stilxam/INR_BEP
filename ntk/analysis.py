@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import neural_tangents as nt
 from jax import jit
 
-from timeit import timeit
 
 def get_NTK_ntvp(apply_fn: Callable) -> Callable:
     """Get NTK computation function."""
@@ -112,7 +111,7 @@ def symmetry_one(k):
 
 def measure_of_diagonal_strength(ntk: jax.Array, map_kwarg:int =0, exp_scale:float =1.0):
     '''
-    Measures how much of a matrix's "energy" is concentrated along its diagonal.
+    Measures how much of a matrix's "energy" is concentrated on its diagonal.
     
     This function computes a ratio between the weighted sum of squared off-diagonal elements
     and the mean squared value of diagonal elements. The weighting scheme is controlled by map_kwarg:
@@ -127,13 +126,10 @@ def measure_of_diagonal_strength(ntk: jax.Array, map_kwarg:int =0, exp_scale:flo
     '''
     size = ntk.shape[0]
     if map_kwarg == 0:
-        # weights = jnp.ones(size) 
         weights = make_map(size)+1
     elif map_kwarg == 1:
-        # weights = 1/(make_map(size)+1)
-        weights = jnp.ones((size,size))
+        weights = jnp.ones((size, size))
     elif map_kwarg == 2:
-        # weights = 1/jnp.square(make_map(size)+1)
         weights = 1/(make_map(size)+1)
     elif map_kwarg == -1:
         weights = (make_map(size)+1)*jnp.exp(-make_map(size)*exp_scale)

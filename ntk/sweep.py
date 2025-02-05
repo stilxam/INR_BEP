@@ -1,9 +1,7 @@
-from typing import Generator
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import neural_tangents as nt
 import wandb
 
 from .analysis import analyze_fft, analyze_fft_spectrum, decompose_ntk, get_NTK_ntvp

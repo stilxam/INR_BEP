@@ -13,7 +13,6 @@ Initializaiton schemes should be callables with the following signature:
 
 :return: an instance of layer_type. 
 """
-from typing import Optional
 import jax
 from jax import numpy as jnp
 from model_components.inr_layers import INRLayer

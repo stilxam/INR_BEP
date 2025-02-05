@@ -1,12 +1,9 @@
 import jax
-from equinox import Module
-import equinox as eqx
 import jax.numpy as jnp
 
 import trimesh
 import numpy as np
 from pathlib import Path
-from typing import Callable, Optional
 from common_jax_utils import key_generator
 
 
