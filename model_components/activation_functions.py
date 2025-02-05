@@ -198,3 +198,102 @@ def exp_sin_activation(x: jax.Array, a: float) -> jax.Array:
     """
     return jnp.exp(jnp.sin(a*x))
 
+
+def make_finer_pp(activation_function:Callable)->Callable:
+    """
+    Make a FINER++ activation function from a base activation function.
+    Applies the FINER++ transformations according to Section 4.1 of the FINER paper:
+    - For sine: sin(ω0(|x| + 1)x)
+    - For Gaussian: exp(-s0^2(|x| + 1)^2x^2) 
+    - For Gabor wavelet: cos(ω0(|x| + 1)x[0])exp(-s0^2(|x| + 1)^2x[1]^2)
+
+    :param activation_function: Base activation function to transform (sine, gaussian or gabor)
+    :return: FINER++ version of the activation function
+    """
+    def finer_pp_activation(*x: jax.Array, **kwargs) -> jax.Array:
+        if activation_function == unscaled_gaussian_bump:
+            # For Gaussian, transform the input with (|x| + 1)x
+            transformed_x = [(jnp.abs(xi) + 1) * xi for xi in x]
+            return activation_function(*transformed_x, **kwargs)
+            
+        elif activation_function == real_gabor_wavelet:
+            # For Gabor, transform x[0] with (|x| + 1)x for frequency
+            # and x[1] with (|x| + 1)x for scale
+            x0_transformed = (jnp.abs(x[0]) + 1) * x[0]
+            x1_transformed = (jnp.abs(x[1]) + 1) * x[1]
+            return activation_function((x0_transformed, x1_transformed), **kwargs)
+            
+        else:
+            # For other functions (e.g. sine), apply standard transform
+            transformed_x = [(jnp.abs(xi) + 1) * xi for xi in x]
+            return activation_function(*transformed_x, **kwargs)
+
+    return finer_pp_activation
+
+def hosc_activation(x: jax.Array, w0: float) -> jax.Array:
+    """
+    HOSC activation function: tanh(w0 * sin(x))
+    """
+    return jnp.tanh(w0 * jnp.sin(x))
+
+
+def ada_hosc_activation(x: jax.Array, w0: float) -> jax.Array:
+    """
+    Adaptive HOSC activation function: sin(x)(1-tanh^2(w0 * sin(x)))
+    """
+    return jnp.sin(x)*(1 - jnp.square(hosc_activation(x, w0)))
+
+
+def make_finer_pp_version(activation_function:Callable)->Callable:
+    # create a new activation function from the old one
+    return activation_function  # TODO modify
+
+gaus_finer = make_finer_pp_version(unscaled_gaussian_bump)
+
+wave_finer = make_finer_pp_version(real_gabor_wavelet)
+
+
+def quadratic_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Quadratic activation function: 1/(1+(ax)^2)
+    """
+    return 1/(1+jnp.square(a*x))
+
+
+def multi_quadratic_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Multi Quadratic activation function: 1/sqrt(1+(ax)^2)
+    """
+    return 1/jnp.sqrt((1+jnp.square(a*x)))
+
+def laplacian_activation(x: jax.Array, a: float)->jax.Array:
+    """
+    LaPlacian activation function: exp(-|x|/a)
+    """
+    return jnp.exp(-jnp.abs(x)/a)
+
+
+def super_gaussian_activation(x: jax.Array, a: float, b: float) -> jax.Array:
+    """
+    Super Gaussian activation function:[exp(-0.5 * (|x|/a)^2)]^b
+    """
+
+    return jnp.pow(jnp.exp(-0.5 * jnp.square(jnp.abs(x)/a)), b)
+
+
+def exp_sin_activation(x: jax.Array, a: float) -> jax.Array:
+    """
+    Exponential sine activation function: exp(sin(ax))
+    """
+    return jnp.exp(jnp.sin(a*x))
+
+
+
+def laplacian(x:jax.Array, a:float):
+    """
+    e^(-|x|/a)
+    :param x: jax.Array
+    :param a: float, for which values >1 make the function "flatter" and values <1 make it "sharper"
+    :returns: jax.Array where the function is applied
+    """
+    return jnp.exp(-jnp.absolute(x)/a)
