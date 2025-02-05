@@ -193,7 +193,7 @@ class ContinuousImage(Module):
     multi_image: bool = False
     interpolation_method: Callable
 
-    def __init__(self, image:Union[jax.Array, str, list[str]], scale_to_01:bool, interpolation_method:Callable, data_index:Optional[int]):
+    def __init__(self, image:Union[jax.Array, str, list[str]], scale_to_01:bool, interpolation_method:Callable, data_index:Optional[int], check_dimensions:bool=True):
         """ 
         :parameter image: either a path to an image or an array
             Note that this image should have the channels last
@@ -208,6 +208,8 @@ class ContinuousImage(Module):
             image = jnp.stack([load_image_as_array(i) for i in image], axis=0) # we need to load all the arrays
             self.multi_image = True
         self.data_index = data_index # so that this (traced) jax.Array always indexes into the same big array of images.
+        if check_dimensions and len(image.shape)<3:
+            image = image[..., None]  #TODO add multi_image case
         self.underlying_image = image
         if scale_to_01:
             self.continuous_image = scale_continuous_image_to_01(
@@ -399,3 +401,12 @@ def evaluate_on_grid_vmapped(func:Callable, grid:jax.Array)->jax.Array:
     results = jax.vmap(func)(flattened_grid)
     target_shape = grid_shape[:-1] + results.shape[1:]
     return jnp.reshape(results, target_shape)
+
+
+def rgb_to_grayscale(rgb_image:jax.Array):
+    """
+    turn an rgb image, array with shape (h, w, 3), into grayscale image array with shape (h, w)
+    """
+    gray_image = 0.299*rgb_image[:,:,0] + 0.587*rgb_image[:,:,1] + 0.114*rgb_image[:,:,2]
+    gray_image = gray_image.astype(jnp.uint8)  
+    return gray_image

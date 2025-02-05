@@ -14,6 +14,17 @@ example_data/*.ply
 example_data/*.xyz
 
 /example_data/
+/DIV2k/
+/DIV2k_entropy_5p_25p/
+/DIV2k_entropy_25p_75p/
+/DIV2k_entropy_75p_95p/
+/DIV2k_entropy_bottom_5p/
+/DIV2k_entropy_top_5p/
+/results
+/synthetic_scenes
+.vscode
+synthetic_scenes.zip
+/example_data
 /results/plots/
 /synthetic_scenes
 /example_data/nerfdata

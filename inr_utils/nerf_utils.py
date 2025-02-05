@@ -1,7 +1,7 @@
 """
 The rendering utilities are based on the jaxnerf implementation from google-research.
 """
-from typing import Optional, Generator #,ClassVar
+from typing import Optional  # ,ClassVar
 import os
 # import multiprocessing
 
@@ -85,7 +85,8 @@ def maybe_add_gaussian_noise(key, raw, noise_std, randomized):
         return raw
 
 
-def volumetric_rendering(rgb:jax.Array, sigma:jax.Array, z_vals:jax.Array, direction:jax.Array, white_bkgd:bool):  # TODO include reference to original code
+def volumetric_rendering(rgb: jax.Array, sigma: jax.Array, z_vals: jax.Array, direction: jax.Array,
+                         white_bkgd: bool):  # TODO include reference to original code
     """Volumetric Rendering Function.
 
     :param rgb: color emited at each sample point, [num_samples, 3].
@@ -99,18 +100,20 @@ def volumetric_rendering(rgb:jax.Array, sigma:jax.Array, z_vals:jax.Array, direc
     eps = 1e-10
     dists = z_vals[1:] - z_vals[:-1]  # [num_samples-1]
     dists = dists * jnp.linalg.norm(direction)
-    
+
     if len(sigma.shape) == 2:
         sigma = jnp.squeeze(sigma, axis=-1)  # [num_samples] ensured
 
     alpha = 1.0 - jnp.exp(-sigma[:-1] * dists)  # [num_samples-1]
     accummulated_transmittance = jnp.concatenate([  # [num_samples] T_i in the NeRF paper
         jnp.ones_like(alpha[:1], alpha.dtype),
-        jnp.cumprod(1.0 - alpha + eps, axis=-1)  # TODO find out if it may be more stable to just take the exponential of the cummulative sum
+        jnp.cumprod(1.0 - alpha + eps, axis=-1)
+        # TODO find out if it may be more stable to just take the exponential of the cummulative sum
     ],
         axis=-1)
-    alpha = jnp.concatenate([alpha, jnp.ones_like(alpha[:1], alpha.dtype)])  # [num_samples] essentially, treat the far end of the rendering box as opaque because the final distance should be 'infinity'
-    weights =  alpha * accummulated_transmittance  # [num_samples]
+    alpha = jnp.concatenate([alpha, jnp.ones_like(alpha[:1],
+                                                  alpha.dtype)])  # [num_samples] essentially, treat the far end of the rendering box as opaque because the final distance should be 'infinity'
+    weights = alpha * accummulated_transmittance  # [num_samples]
 
     resulting_rgb = (weights[:, None] * rgb).sum(axis=0)  # integration over the ray
     acc = weights.sum()
@@ -177,6 +180,7 @@ def piecewise_constant_pdf(key, bins, weights, num_samples, randomized):  # TODO
     # Prevent gradient from backprop-ing through `samples`.
     return jax.lax.stop_gradient(samples)
 
+
 def sample_pdf(key, bins, weights, origin, direction, z_vals, num_samples, randomized):
     """Hierarchical sampling.
 
@@ -200,8 +204,8 @@ def sample_pdf(key, bins, weights, origin, direction, z_vals, num_samples, rando
     coords = cast_ray(z_vals, origin, direction)
     return z_vals, coords
 
-class Renderer(eqx.Module):
 
+class Renderer(eqx.Module):
     num_coarse_samples: int
     num_fine_samples: int
     near: float
@@ -211,7 +215,10 @@ class Renderer(eqx.Module):
     lindisp: bool
     randomized: bool
 
-    def render_nerf_pixel(self, nerf:NeRF, ray_origin, ray_direction, key:jax.Array, state:Optional[eqx.nn.State]=None):
+    # make this work on a grid, must use correct ray_directions and stochasticity
+
+    def render_nerf_pixel(self, nerf: NeRF, ray_origin, ray_direction, key: jax.Array,
+                          state: Optional[eqx.nn.State] = None):
         """ 
         Render a single pixel from an NeRF based on a ray origin and direction
         :parameter nerf: the NeRF model to be rendered
@@ -221,7 +228,7 @@ class Renderer(eqx.Module):
         :parameter state: optional state for the NeRF model if needed (will not be updated or returned by this function)
         """
         key_gen = key_generator(key)
-        
+
         # Normalize ray directions
         viewdir = ray_direction / jnp.linalg.norm(ray_direction)  # [3,]
 
@@ -268,7 +275,7 @@ class Renderer(eqx.Module):
             "coarse_rgb": computed_rgb,
             "coarse_depth": depth
         }
-        
+
         # hierarchical sampling based on coarse predictions
         z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
         z_vals, samples = sample_pdf(
@@ -312,18 +319,104 @@ class Renderer(eqx.Module):
         return return_value
 
 
+class ImageReconstructor(eqx.Module):
+    """
+    Reconstruct an image from a NeRF model.
+    """
+    renderer: Renderer
+    nerf: NeRF
+    num_coarse_samples: int
+    num_fine_samples: int
+    near: float
+    far: float
+    noise_std: Optional[float]
+    white_bkgd: bool
+    lindisp: bool
+    randomized: bool
+    height: int
+    width: int
+    folder: str
+    pose: int
+    batch_size: int
+    key: jax.Array
+    state: Optional[eqx.nn.State]
+    ray_directions: jax.Array
+    ray_origins: jax.Array
+
+    def __init__(self,
+                 nerf: NeRF,
+                 num_coarse_samples: int,
+                 num_fine_samples: int,
+                 near: float,
+                 far: float,
+                 noise_std: Optional[float],
+                 white_bkgd: bool,
+                 lindisp: bool,
+                 randomized: bool,
+                 height: int,
+                 width: int,
+                 folder: str,
+                 pose: int,
+                 batch_size: int,
+                 key: jax.Array,
+                 state: Optional[eqx.nn.State] = None
+                 ):
+        """
+        Initialize the ImageReconstructor
+        """
+        self.height = height
+        self.width = width
+        self.focal = SyntheticScenesHelper.get_focal(folder)
+        self.pose = pose
+        self.batch_size = batch_size
+        self.key = key
+        self.ray_origins, self.ray_directions = SyntheticScenesHelper.generate_rays(self.height, self.width, self.focal,
+                                                                                    self.pose)
+        self.nerf = nerf
+        self.renderer = Renderer(
+            num_coarse_samples=num_coarse_samples,
+            num_fine_samples=num_fine_samples,
+            near=near,
+            far=far,
+            noise_std=noise_std,
+            white_bkgd=white_bkgd,
+            lindisp=lindisp,
+            randomized=randomized
+        )
+        self.state = state
+
+    def __call__(self):
+        """
+        Render the image
+        :return: jnp.ndarray(float32), [height, width, 3], the rendered image
+        """
+        keys = jax.random.split(self.key, self.height * self.width)
+
+        results = jax.vmap(self.renderer.render_nerf_pixel, in_axes=(None, 0, 0, 0, None))(self.nerf, self.ray_origins,
+                                                                                           self.ray_directions, keys,
+                                                                                           self.state)
+
+        rgbs = jnp.stack([result["fine_rgb"] for result in results], axis=0)
+
+        reshape_rgbs = rgbs.reshape((self.height, self.width, 3))
+        return reshape_rgbs
+
+
+
 class SyntheticScenesHelper:
     # just a collection of methods related to each other
     @staticmethod
-    def get_focal(folder:str)->float:
+    def get_focal(folder: str) -> float:
         # based on https://github.com/vsitzmann/deepvoxels?tab=readme-ov-file#coordinate-and-camera-parameter-conventions
         with open(f"{folder}/intrinsics.txt", 'r') as intrinsics_file:
             first_line = next(intrinsics_file)
             focal_length = float(first_line.split(' ')[0])
         return focal_length
-    
+
     @staticmethod
-    def generate_rays(height:int, width:int, focal:float, pose:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def generate_rays(height: int, width: int, focal: float, pose: np.ndarray) -> tuple[
+        np.ndarray, np.ndarray]:  # TODO: use this to get ray directions, this information is in pose/base_name.txt
+        # focal length comes from intrinsic_file
         """
         Generate rays for volumetric rendering
         :param height: height of the image
@@ -341,13 +434,14 @@ class SyntheticScenesHelper:
 
         directions = np.stack([transformed_i, transformed_j, k], axis=-1)  # 2-d grid of 3-d vectors
         camera_matrix = pose[:3, :3]
-        ray_directions = np.einsum("ijl,kl->ijk", directions, camera_matrix)  # multiply each vector in the grid by camera_matrix
+        ray_directions = np.einsum("ijl,kl->ijk", directions,
+                                   camera_matrix)  # multiply each vector in the grid by camera_matrix
         ray_origin = pose[:3, -1]
 
         return ray_origin, ray_directions
 
     @classmethod
-    def create_numpy_arrays(cls, folder:str)->tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def create_numpy_arrays(cls, folder: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         file_base_names = [
             file_name.removesuffix('.png')
             for file_name in os.listdir(f"{folder}/rgb")
@@ -355,7 +449,7 @@ class SyntheticScenesHelper:
         file_base_names = sorted(file_base_names)
 
         focal_length = cls.get_focal(folder)
-        
+
         # first, we determine the sizes of arrays that we need
         num_images = len(file_base_names)
 
@@ -369,7 +463,7 @@ class SyntheticScenesHelper:
         poses = np.empty(poses_shape, dtype=np.float32)
 
         origins_shape = (num_images, 3)
-        directions_shape = (num_images, ) + image_size + (3,)
+        directions_shape = (num_images,) + image_size + (3,)
 
         ray_origins = np.empty(origins_shape, dtype=np.float32)
         ray_directions = np.empty(directions_shape, np.float32)
@@ -380,8 +474,8 @@ class SyntheticScenesHelper:
             pose_path = f"{folder}/pose/{base_name}.txt"
 
             with Image.open(image_path) as image:
-                images[index] = np.asarray(image, dtype=np.float32)/255.
-            
+                images[index] = np.asarray(image, dtype=np.float32) / 255.
+
             # following is based on https://github.com/vsitzmann/deepvoxels/blob/a12171a77b68980b9b025c70c117e92af973f20b/data_util.py#L53
             flat_pose = np.loadtxt(pose_path, dtype=np.float32)
             pose = flat_pose.reshape((4, 4))
@@ -396,9 +490,10 @@ class SyntheticScenesHelper:
             )
             ray_origins[index] = origin
             ray_directions[index] = directions
-        
+
         return images, poses, ray_origins, ray_directions
-    
+
+
 class SyntheticScenesDataLoader:
     images: jax.Array
     poses: jax.Array
@@ -424,7 +519,7 @@ class SyntheticScenesDataLoader:
                 key = next(key_gen)
 
             ray_origins, ray_directions, return_key, ground_truth_pixel_values = self._prepare_arrays(key)
-                
+
             yield (
                 jax.device_put(ray_origins, self._gpu),
                 jax.device_put(ray_directions, self._gpu),
@@ -433,7 +528,7 @@ class SyntheticScenesDataLoader:
             )
 
     @(lambda f: jax.jit(f, device=jax.devices('cpu')[0], static_argnums=0))
-    def _prepare_arrays(self, key:jax.Array):
+    def _prepare_arrays(self, key: jax.Array):
         with jax.default_device(self._cpu):
             poses_key, directions_key, return_key = jax.random.split(key, 3)
 
@@ -442,14 +537,17 @@ class SyntheticScenesDataLoader:
             dataset_size = self.images.shape[0]
 
             selected_camera_poses_idx = jax.random.choice(poses_key, dataset_size, shape=(self.poses_per_batch,))
-            selected_directions_idx_flat = jax.random.choice(directions_key, grid_size,  shape=(self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
-            selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None], (self.poses_per_batch, self._pixels_per_pose))
+            selected_directions_idx_flat = jax.random.choice(directions_key, grid_size, shape=(
+                self.poses_per_batch, self._pixels_per_pose))  # flat (raveled) indices into grid
+            selected_camera_poses_idx = jnp.broadcast_to(selected_camera_poses_idx[:, None],
+                                                         (self.poses_per_batch, self._pixels_per_pose))
 
             selected_directions_idx_grid = jax.vmap(
                 lambda flat_index: jnp.unravel_index(flat_index, shape=(height, width))
             )(selected_directions_idx_flat)  # multi indices into (height, width) grid
 
-            selected_directions_idx = (selected_camera_poses_idx,)+ selected_directions_idx_grid #  multi indices into (dataset_size, height, width) array
+            selected_directions_idx = (
+                                          selected_camera_poses_idx,) + selected_directions_idx_grid  # multi indices into (dataset_size, height, width) array
 
             ray_origins = self.ray_origins[selected_camera_poses_idx]
             ray_directions = self.ray_directions[selected_directions_idx]
@@ -461,17 +559,18 @@ class SyntheticScenesDataLoader:
 
             return ray_origins, ray_directions, return_key, ground_truth_pixel_values
 
-
-    def __init__(self, split:str, name:str, batch_size:int, poses_per_batch:int, base_path:str="./synthetic_scenes", size_limit:int=-1, *, key: jax.Array):
+    def __init__(self, split: str, name: str, batch_size: int, poses_per_batch: int,
+                 base_path: str = "./synthetic_scenes", size_limit: int = -1, *, key: jax.Array):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
-        
+
         folder = f"{base_path}/{split}/{name}"
         if not os.path.exists(folder):
             raise ValueError(f"Following folder does not exist: {folder}")
         if batch_size % poses_per_batch:
-            raise ValueError(f"batch_size should be divisible by poses_per_batch. Got {batch_size=} but {poses_per_batch=}  - note that {batch_size % poses_per_batch=}.")
-        
+            raise ValueError(
+                f"batch_size should be divisible by poses_per_batch. Got {batch_size=} but {poses_per_batch=}  - note that {batch_size % poses_per_batch=}.")
+
         self.batch_size = batch_size
         self.poses_per_batch = poses_per_batch
         self._pixels_per_pose = batch_size // poses_per_batch
@@ -485,20 +584,20 @@ class SyntheticScenesDataLoader:
                 self.poses = jnp.asarray(pre_processed['poses'][:size_limit])
                 self.ray_origins = jnp.asarray(pre_processed['ray_origins'][:size_limit])
                 self.ray_directions = jnp.asarray(pre_processed['ray_directions'][:size_limit])
-            else: # otherwise, create said npz file
+            else:  # otherwise, create said npz file
                 print(f"creating npz archive for {split}, {name}.")
                 images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
                 self.images = jnp.asarray(images[:size_limit])
                 self.poses = jnp.asarray(poses[:size_limit])
                 self.ray_origins = jnp.asarray(ray_origins[:size_limit])
                 self.ray_directions = jnp.asarray(ray_directions[:size_limit])
-                np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins, ray_directions=ray_directions)
+                np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins,
+                         ray_directions=ray_directions)
                 print(f"    finished creating {target_path}")
-            
+
         self.initial_key = jax.device_put(key, self._cpu)
 
-
-# # the following was just a bad idea 
+# # the following was just a bad idea
 # class _SharedArray:
 #     """ 
 #     This is a descriptor (see https://docs.python.org/3/howto/descriptor.html) that can return views into a shared array
@@ -544,12 +643,12 @@ class SyntheticScenesDataLoader:
 #         if key not in cls.containers:
 #             cls.containers[key] = super().__new__(cls)
 #         return cls.containers[key]
-    
+
 #     def __init__(self, split:str, name:str, base_path:str):
 #         folder = f"{base_path}/{split}/{name}"
 #         if not os.path.exists(folder):
 #             raise ValueError(f"Following folder does not exist: {folder}")
-        
+
 #         # if we've already stored everything in a single big npz file, just load that
 #         target_path = f"{folder}/pre_processed.npz"
 #         if os.path.exists(target_path):
@@ -591,7 +690,7 @@ class SyntheticScenesDataLoader:
 #             key = worker_keys[worker_info.id]
 #             return self.iterate_from_jax_key(key)
 
-    
+
 #     def iterate_from_jax_key(self, key:jax.Array):
 #         #print(f"Starting SyntheticScenesDataset iterable from key={jax.random.key_data(key)}.")
 #         cpu = jax.devices('cpu')[0]
@@ -626,4 +725,3 @@ class SyntheticScenesDataLoader:
 #                     return_key, 
 #                     jnp.asarray(ground_truth_pixel_value)
 #                     )
-

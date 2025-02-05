@@ -7,7 +7,6 @@ from typing import Callable, Union, Any, Optional
 from functools import partial
 from pathlib import Path
 
-import jax
 from jax import numpy as jnp
 import numpy as np
 

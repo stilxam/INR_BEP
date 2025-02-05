@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt

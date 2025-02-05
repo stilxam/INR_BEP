@@ -20,12 +20,10 @@ import PIL
 import numpy as np
 import librosa
 import plotly.graph_objects as go
-import trimesh
-from pathlib import Path
 import skimage
 import wandb
 
-from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector
+from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
     make_lin_grid, make_gif
 from inr_utils.losses import mse_loss

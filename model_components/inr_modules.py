@@ -4,20 +4,16 @@ The __init__ method of these classes typically takes entire layers or modules as
 If you want to create instances of these classes from hyperparameters such as input size, hidden size, output size, etc.,
 you can either use a from_config method when available, or provide INRLayer instances created from these hyperparameters by their from_config methods.
 """
-from abc import ABC
-from dataclasses import InitVar
-from typing import Callable, Optional, Union, Any, Tuple, List
+from typing import Callable, Optional, Union
 from functools import partial, wraps
 import warnings
 import abc
 
 import jax
 from jax import numpy as jnp
-from jax import random, lax
 import equinox as eqx
-from jax._src.numpy.linalg import outer
 
-from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer, SirenLayer
+from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer
 from model_components import auxiliary as aux
 
 from common_jax_utils import key_generator

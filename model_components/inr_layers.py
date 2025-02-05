@@ -905,3 +905,174 @@ class TridentPositionalEncoding(PositionalEncodingLayer):
         :returns: dimensionality of the embedding
         """
         return 2 * self.embedding_matrix.shape[0] * in_size
+
+
+class IntegerLatticeEncoding(PositionalEncodingLayer):
+    # TODO Simon: we need to allow for a scheduler in the train step to increase alpha.
+    _is_learnable = False
+    _min_alpha_state_index: eqx.nn.StateIndex
+    _alpha_state_index: eqx.nn.StateIndex
+    _max_alpha_state_index: eqx.nn.StateIndex
+
+    def is_stateful(self):
+        return True
+    
+    def __init__(self, embedding_matrix):
+        init_alpha = 1.1 
+        max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
+        
+        self._min_alpha_state_index = eqx.nn.StateIndex(init_alpha)
+        self._alpha_state_index = eqx.nn.StateIndex(init_alpha)
+        self._max_alpha_state_index = eqx.nn.StateIndex(max_alpha)
+        super().__init__(embedding_matrix)
+
+    @classmethod
+    def from_config(cls, N, dim_input):
+        """
+        Generates the integer lattice mapping matrix B
+
+        :parameter N: frequency bound
+        :dim_input: input dimension
+        :return: the integer lattice mapping matrix
+        """
+
+        # all possible values in the range [-N, N]
+        grid_ranges = [jnp.arange(-N, N + 1) for _ in range(dim_input)]
+        
+        # create a grid of all combinations of the values in [-N, N]
+        grid_mesh = jnp.meshgrid(*grid_ranges, indexing='ij')
+        
+        # stack combinations into a matrix
+        B = jnp.stack([g.flatten() for g in grid_mesh], axis=-1)
+
+        # apply infinity norm constraint ||n||_∞ ≤ N
+        mask = jnp.max(jnp.abs(B), axis=1) <= N
+        B = B[mask]
+
+        # dentify where all previous elements (n1, ..., n_{j-1} for any j>1) are zero
+        zero_prefix_mask = jnp.cumprod(B == 0, axis=1, dtype=jnp.int32)
+
+        # set H, in which a negative component follows a sequence of zeros
+        H = jnp.any((zero_prefix_mask[:, :-1] == 1) & (B[:, 1:] < 0), axis=1)
+
+        # remove elements in H
+        B = B[~H]
+
+        return cls(B)
+    
+    def weigh_embedding_matrix(self, state):
+        """
+        Applies weighing to the rows of the embedding matrix
+        Weighing factor alpha is incremented linearly during training 
+        until a maximum value is reached  
+        """
+        embedding_matrix = self.embedding_matrix
+
+        current_alpha = state.get(self._alpha_state_index)
+        max_alpha = state.get(self._max_alpha_state_index)
+        
+        current_alpha = jnp.where(current_alpha < max_alpha, current_alpha, max_alpha)
+        
+        def weigh_B(B, alpha):
+            """
+            Assign a weight to the elements of all rows in embedding matrix B,
+            where the weighing is evaluated per row
+
+            :parameter B: the original embedding matrix B
+            :parameter alpha: the current value of alpha at a given state
+            :return: matrix B with weighing applied
+            """
+            def w_alpha(z):
+                """
+                Determines a weight for a single row (frequency) of embedding matrix B, 
+                depending on the values of alpha and the norm of the row
+
+                :parameter z: a row of embedding matrix B
+                :return: the weight to assign to that row
+                """
+                return jnp.where(
+                    alpha - z < 0,
+                    0, 
+                    jnp.where(alpha-z<=1, 0.5*(1-jnp.cos((alpha-z)*jnp.pi)), 1),
+                )
+            # collect the norm of each row in B
+            norms = jnp.linalg.norm(B, axis=1)
+
+            # weigh the rows
+            weights = w_alpha(norms)
+            
+            # apply the weight of each row to B
+            weighted_B = B * weights[:, None]
+
+            return weighted_B
+        
+        weighted_embedding_matrix = weigh_B(embedding_matrix, current_alpha)
+
+        return weighted_embedding_matrix
+
+    def pruned_model(self, state, target_ratio):
+        """
+        Replaces the INR's embedding and weights matrices with smaller versions
+        that retain the most relevant frequency components of the embedding matrix 
+        and the weight vectors that correspond to them
+        """
+
+        # TODO add condition for when the pruning happens, dependent on the state
+        embedding_matrix = self.embedding_matrix
+        weights_matrix = self.weights # not sure how to get the model weights
+        
+        def prune_B_and_W(B, W, target_ratio):
+            """
+            :parameter target_ratio: ratio of rows to retain from the embedding matrix,
+            e.g. target_ratio = 0.5 means we keep half the number of rows
+            :return pruned_B: pruned embedding matrix (retained_rows, in_size)
+            :return pruned_W: pruned weights matrix (out_size, 2 * retained_rows)
+            """
+            # number of frequencies in B
+            m = B.shape[0]  
+
+            # sum norms for sine and cosine components in W 
+            frequency_importances = jnp.linalg.norm(W[:, :m], axis=0) + jnp.linalg.norm(W[:, m:], axis=0)
+
+            # number of rows to keep
+            target_size = jnp.ceil(target_ratio * m).astype(int)
+
+            # get indices of the rows we keep
+            kept_indices = jnp.argsort(frequency_importances)[-target_size:]
+
+            pruned_B = B[kept_indices]
+
+            # keep indices in both the sine and cosine halves of W
+            pruned_W = jnp.concatenate([W[:, kept_indices], W[:, kept_indices + m]], axis=1)
+
+            return pruned_B, pruned_W
+        
+        pruned_B, pruned_W = prune_B_and_W(embedding_matrix, weights_matrix, target_ratio)
+        
+        return pruned_B, pruned_W
+
+    def out_size(self, in_size:int)->int:
+        return 2*self.embedding_matrix.shape[0]*in_size
+
+    @staticmethod
+    def update_state(self, state, nr_increments):
+
+        current_alpha = state.get(self._alpha_state_index)
+        init_alpha = state.get(self._min_alpha_state_index)
+        max_alpha = state.get(self._max_alpha_state_index)
+
+        increment_size = (max_alpha - init_alpha) / nr_increments
+        current_alpha = jnp.minimum(current_alpha + increment_size, max_alpha)
+
+        return state.set(self._alpha_state_index, current_alpha)
+        
+    def __call__(self, x:jax.Array, state: eqx.nn.State, nr_increments: int, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+        
+        embedding_matrix = self.weigh_embedding_matrix(state)
+
+        encoding = jnp.concatenate([jnp.cos(2*jnp.pi*(x @ embedding_matrix.T)), 
+                                    jnp.sin(2*jnp.pi*(x @ embedding_matrix.T))], 
+                                    axis=-1).flatten()
+        
+        return encoding, state
+    
