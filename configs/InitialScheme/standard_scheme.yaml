@@ -1,7 +1,7 @@
 ---
 # the arguments that will be varied
 activation_kwargs:
-    scale_factor: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]  # testing different scale factors
+    scale_factor: [0.1, 0.5, 1.5, 2.0, 3.5, 5.0]  # testing different scale factors
 
 learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]  # keeping learning rate constant for each scale factor
 
@@ -14,11 +14,12 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.UnscaledGaussianBumpLayer
+  layer_type: inr_layers.GaussianINRLayer
   num_splits: 1
   initialization_scheme: initialization_schemes.standard_scheme
+  activation_kwargs: {inverse_scale: 2.0}
   # initialization_scheme_kwargs: {}  # standard scheme doesn't need additional parameters
-  activation_kwargs: {inverse_scale: 1.0}  # standard linear layer doesn't need activation parameters
+   # standard linear layer doesn't need activation parameters
   # state_update_function: ('state_test_objects.py', 'counter_updater')
   # positional_encoding_layer: ('state_test_objects.py', 'CountingIdentity')
 

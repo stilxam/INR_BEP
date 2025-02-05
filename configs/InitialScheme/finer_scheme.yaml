@@ -1,7 +1,7 @@
 ---
 # the arguments that will be varied
 activation_kwargs:
-    scale_factor: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]  # testing different scale factors
+    scale_factor: [0.1, 0.5, 1.5, 2.0, 3.5, 5.0]  # testing different scale factors
 
 learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]  # keeping learning rate constant for each scale factor
 
@@ -17,10 +17,10 @@ model_config:
   layer_type: inr_layers.FinerLayer
   num_splits: 1
   initialization_scheme: initialization_schemes.finer_scheme
-  initialization_scheme_kwargs: {'w0': 30.0, 'bias_k': 10.0}
-  activation_kwargs: {'w0': 30.0}
-  state_update_function: ('state_test_objects.py', 'counter_updater')
-  positional_encoding_layer: ('state_test_objects.py', 'CountingIdentity')
+  initialization_scheme_kwargs: {'w0': 15.0, 'bias_k': 1.0}
+  activation_kwargs: {'w0': 15.0}
+  # state_update_function: ('state_test_objects.py', 'counter_updater')
+  # positional_encoding_layer: ('state_test_objects.py', 'CountingIdentity')
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -32,6 +32,7 @@ target_function_config:
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
   data_index: None
+loss_function: losses.scaled_mse_loss
 
 sampler: sampling.GridSubsetSampler
 sampler_config:

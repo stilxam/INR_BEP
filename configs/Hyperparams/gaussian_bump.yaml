@@ -1,9 +1,9 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    inverse_scale: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 20.0]
+    inverse_scale: [1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]
 
-learning_rate: [1.e-4, 1.5e-4, 3.e-4, 5.e-4, 1.e-3, 1.5e-3, 3.e-3, 5.e-3]
+learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
