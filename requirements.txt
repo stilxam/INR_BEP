@@ -20,8 +20,8 @@ chex==0.1.88
 click==8.1.8
 colorlog==6.9.0
 comm==0.2.2
-common_dl_utils @ git+https://github.com/SimonKoop/common_dl_utils.git
-common_jax_utils @ git+https://github.com/SimonKoop/common_jax_utils
+common_dl_utils @ git+https://github.com/SimonKoop/common_dl_utils.git@f649d2a5483c7dc16efbc37fecea29817f2a090d
+common_jax_utils @ git+https://github.com/SimonKoop/common_jax_utils@e67de60b6d33c3a977ae4fa73a54245316bd54fa
 contourpy==1.3.1
 cycler==0.12.1
 debugpy==1.8.12
