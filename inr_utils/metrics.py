@@ -673,7 +673,7 @@ class ViewSynthesisComparison(Metric):
     @staticmethod
     def structured_similarity_index(x: jax.Array, y: jax.Array) -> float:
         """Compute the Structural Similarity Index (SSIM) between two images."""
-        return ssim(x, y, multichannel=True)
+        return ssim(x, y)
 
 
     @staticmethod
