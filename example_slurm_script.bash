@@ -5,7 +5,7 @@
 #SBATCH -N 1
 #SBATCH --tasks-per-node 1
 #SBATCH --gpus=1
-#SBATCH --output=R-%x.%j.out
+#SBATCH --output=./slurm_output/R-%x.%j.out
 module load 2023
 module load Miniconda3/23.5.2-0
 #source /sw/arch/RHEL8/EB_production/2023/software/Miniconda3/23.5.2-0/etc/profile.d/conda.sh
