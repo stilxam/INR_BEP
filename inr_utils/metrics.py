@@ -7,7 +7,7 @@ In the same namespace there is also LossStandardDeviation from common_jax_utils.
 which tracks the standard deviation of the loss in a window of training steps.
 See https://github.com/SimonKoop/common_jax_utils/blob/main/src/common_jax_utils/metrics.py
 """
-
+import os
 from functools import partial
 from typing import Callable, Union, Tuple, Optional
 import tempfile
@@ -566,3 +566,105 @@ class MarchingCube(Metric):
             return out
 
         return wrapped
+
+
+from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
+
+class ViewSynthesisComparison(Metric):
+    """
+    Compute the mean squared error between the target image and the rendered image from the NeRF
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            split: str,
+            name: str,
+            width: int,
+            height: int,
+            batch_size: int,
+            frequency: str,
+            num_coarse_samples: int,
+            num_fine_samples: int,
+            near: float,
+            far: float,
+            noise_std: Optional[float],
+            white_bkgd: bool,
+            lindisp: bool,
+            randomized: bool,
+    ):
+        self._cpu = jax.devices('cpu')[0]
+        self._gpu = jax.devices('gpu')[0]
+        folder = f"./synthetic_scenes/{split}/{name}"
+        if not os.path.exists(folder):
+            raise ValueError(f"Following folder does not exist: {folder}")
+
+        with jax.default_device(self._cpu):
+            # if we've already stored everything in a single big npz file, just load that
+            target_path = f"{folder}/pre_processed.npz"
+            if os.path.exists(target_path):
+                pre_processed = np.load(target_path)
+                self.target_images = jnp.asarray(pre_processed['images'][:])
+                self.target_poses = jnp.asarray(pre_processed['poses'][:])
+                self.target_ray_origins = jnp.asarray(pre_processed['ray_origins'][:])
+                self.target_ray_directions = jnp.asarray(pre_processed['ray_directions'][:])
+            else:  # otherwise, create said npz file
+                print(f"creating npz archive for {split}, {name}.")
+                images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
+                self.target_images = jnp.asarray(images[:])
+                self.target_poses = jnp.asarray(poses[:])
+                self.target_ray_origins = jnp.asarray(ray_origins[:])
+                self.target_ray_directions = jnp.asarray(ray_directions[:])
+                np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins,
+                         ray_directions=ray_directions)
+                print(f"    finished creating {target_path}")
+
+        self.view_reconstructor = ViewReconstructor(
+            num_coarse_samples=num_coarse_samples,
+            num_fine_samples=num_fine_samples,
+            near=near,
+            far=far,
+            noise_std=noise_std,
+            white_bkgd=white_bkgd,
+            lindisp=lindisp,
+            randomized=randomized,
+            height=height,
+            width=width,
+            folder=folder,
+            key=jax.random.PRNGKey(0)
+        )
+
+
+        self.frequency = MetricFrequency(frequency)
+        self.width = width
+        self.height = height
+        self.batch_size = batch_size
+
+    def compute(self, **kwargs) -> dict:
+        inr = kwargs['inr']
+        inr = self.wrap_inr(inr)
+
+        # Render the image
+        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr, self.target_ray_directions, self.target_ray_origins)
+        # Compute the mean squared error
+        mse = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
+
+        return {'mse': mse}
+
+    @staticmethod
+    def mean_squared_error(x, y):
+        return jnp.mean(jnp.square(x - y))
+
+
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
+

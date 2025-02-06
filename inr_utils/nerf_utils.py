@@ -319,12 +319,11 @@ class Renderer(eqx.Module):
         return return_value
 
 
-class ImageReconstructor(eqx.Module):
+class ViewReconstructor(eqx.Module):
     """
     Reconstruct an image from a NeRF model.
     """
     renderer: Renderer
-    nerf: NeRF
     num_coarse_samples: int
     num_fine_samples: int
     near: float
@@ -336,15 +335,12 @@ class ImageReconstructor(eqx.Module):
     height: int
     width: int
     folder: str
-    pose: int
     batch_size: int
     key: jax.Array
-    state: Optional[eqx.nn.State]
     ray_directions: jax.Array
     ray_origins: jax.Array
 
     def __init__(self,
-                 nerf: NeRF,
                  num_coarse_samples: int,
                  num_fine_samples: int,
                  near: float,
@@ -356,10 +352,7 @@ class ImageReconstructor(eqx.Module):
                  height: int,
                  width: int,
                  folder: str,
-                 pose: int,
-                 batch_size: int,
                  key: jax.Array,
-                 state: Optional[eqx.nn.State] = None
                  ):
         """
         Initialize the ImageReconstructor
@@ -367,12 +360,7 @@ class ImageReconstructor(eqx.Module):
         self.height = height
         self.width = width
         self.focal = SyntheticScenesHelper.get_focal(folder)
-        self.pose = pose
-        self.batch_size = batch_size
         self.key = key
-        self.ray_origins, self.ray_directions = SyntheticScenesHelper.generate_rays(self.height, self.width, self.focal,
-                                                                                    self.pose)
-        self.nerf = nerf
         self.renderer = Renderer(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
@@ -383,23 +371,37 @@ class ImageReconstructor(eqx.Module):
             lindisp=lindisp,
             randomized=randomized
         )
-        self.state = state
 
-    def __call__(self):
+    def __call__(self, nerf: NeRF, ray_directions, ray_origins, state: Optional[eqx.nn.State] = None):
         """
-        Render the image
-        :return: jnp.ndarray(float32), [height, width, 3], the rendered image
+        Render the image and depth map from a NeRF model.
+        :param nerf: the NeRF model to be rendered
+        :param ray_directions: the directions of the rays to be cast
+        :param ray_origins: the origins of the rays to be cast
+        :param state: optional state for the NeRF model if needed (will not be updated or returned by this function)
+        :return: rendered_image, depth_map, both as jnp.ndarray(float32), [height, width, 3] and [height, width] respectively
         """
+        # Flatten rays and repeat origins for each pixel
+        ray_origins_flat = jnp.tile(self.ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
+        ray_directions_flat = self.ray_directions.reshape(-1, 3)  # [H*W, 3]
+
+        # Generate random keys for each pixel
         keys = jax.random.split(self.key, self.height * self.width)
 
-        results = jax.vmap(self.renderer.render_nerf_pixel, in_axes=(None, 0, 0, 0, None))(self.nerf, self.ray_origins,
-                                                                                           self.ray_directions, keys,
-                                                                                           self.state)
+        # Vectorize rendering across all pixels
+        results = jax.vmap(self.renderer.render_nerf_pixel, in_axes=(None, 0, 0, 0, None))(
+            nerf,
+            ray_origins_flat,
+            ray_directions_flat,
+            keys,
+            state
+        )
 
-        rgbs = jnp.stack([result["fine_rgb"] for result in results], axis=0)
-
-        reshape_rgbs = rgbs.reshape((self.height, self.width, 3))
-        return reshape_rgbs
+        # Extract and reshape RGB values
+        rgbs = results["fine_rgb"]
+        rendered_image = rgbs.reshape((self.height, self.width, 3))
+        depth = results["fine_depth"].reshape((self.height, self.width))
+        return rendered_image, depth
 
 
 
