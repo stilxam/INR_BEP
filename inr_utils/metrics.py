@@ -569,6 +569,7 @@ class MarchingCube(Metric):
 
 
 from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
+from skimage.metrics import structural_similarity as ssim
 
 class ViewSynthesisComparison(Metric):
     """
@@ -641,19 +642,38 @@ class ViewSynthesisComparison(Metric):
         self.batch_size = batch_size
 
     def compute(self, **kwargs) -> dict:
+        """
+        Compute the mean squared error between the target image and the rendered image from the NeRF
+        """
         inr = kwargs['inr']
         inr = self.wrap_inr(inr)
 
         # Render the image
         rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr, self.target_ray_directions, self.target_ray_origins)
         # Compute the mean squared error
-        mse = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
+        mses = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
+        psnrs = jax.vmap(self.peak_signal_to_noise_ratio)(rendered_images, self.target_images)
+        ssims = jax.vmap(self.structured_similarity_index)(rendered_images, self.target_images)
 
-        return {'mse': mse}
+        # if ssim is not vmappable, we can use the following line instead
+        # ssims = [self.structured_similarity_index(target_image, rendered_image) for target_image, rendered_image in zip(self.target_images, rendered_images)]
+
+        return {'mse': mses, 'psnr': psnrs, 'ssim': ssims}
+
 
     @staticmethod
-    def mean_squared_error(x, y):
+    def mean_squared_error(x: jax.Array, y: jax.Array) -> jax.Array:
         return jnp.mean(jnp.square(x - y))
+
+    @staticmethod
+    def peak_signal_to_noise_ratio(x: jax.Array, y: jax.Array) -> jax.Array:
+        peak = jnp.max(y)
+        return 10 * jnp.log10(peak ** 2 / jnp.mean(jnp.square(x - y)))
+
+    @staticmethod
+    def structured_similarity_index(x: jax.Array, y: jax.Array) -> float:
+        """Compute the Structural Similarity Index (SSIM) between two images."""
+        return ssim(x, y, multichannel=True)
 
 
     @staticmethod
