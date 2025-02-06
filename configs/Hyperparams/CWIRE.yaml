@@ -18,11 +18,11 @@ model_config:
   layer_type: inr_layers.ComplexWIRE
   num_splits: 1
   use_complex: true 
+  post_processor: auxiliary.real_part
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
-trainer_config:
-  holomorphic: true
+
 
 loss_evaluator: losses.PointWiseLossEvaluator
 target_function: images.ContinuousImage
