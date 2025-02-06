@@ -48,11 +48,13 @@ echo 'Starting new experiment!';
 # python run_parallel.py --config=./configs/Hyperparams/super_gaussian.yaml
 # python run_parallel.py --config=./configs/Hyperparams/super_gaussianB.yaml
 # python run_parallel.py --config=./configs/Hyperparams/exp_sin.yaml
-# # python run_parallel.py --config=./configs/Hyperparams/CWIRE.yaml
-# # python run_parallel.py --config=./configs/Hyperparams/RWIRE.yaml
+# python run_parallel.py --config=./configs/Hyperparams/CWIRE.yaml
+# python run_parallel.py --config=./configs/Hyperparams/RWIRE.yaml
 # python run_parallel.py --config=./configs/Hyperparams/laplacian.yaml
 
- 
+#  python run_from_inr_sweep.py --sweep_id=8p7osld6 --entity=abdtab-tue> sdf_sweep_example.out
+# python run_from_inr_sweep.py --sweep_id=2v865zcl --entity=abdtab-tue > sdf_sweep_example2.out
+python run_from_inr_sweep.py --sweep_id=ef0uhjss --entity=abdtab-tue > sdf_sweep_example3.out
 # you can put more lines like this one after
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
@@ -64,4 +66,4 @@ echo 'Starting new experiment!';
 echo 'Starting scale factor experiments!';
 # python run_parallel.py --config=./configs/InitialScheme/example_siren.yaml
 # python run_parallel.py --config=./configs/InitialScheme/finer_scheme.yaml
-python run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml
+# python run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml
