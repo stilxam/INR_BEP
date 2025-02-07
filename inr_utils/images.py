@@ -410,3 +410,25 @@ def rgb_to_grayscale(rgb_image:jax.Array):
     gray_image = 0.299*rgb_image[:,:,0] + 0.587*rgb_image[:,:,1] + 0.114*rgb_image[:,:,2]
     gray_image = gray_image.astype(jnp.uint8)  
     return gray_image
+
+def image_grads(image: jax.Array)->jax.Array:
+    """
+    get the normalized gradient arrays of an image represented as an array, returned as: grad_x, grad_y = image_grads(image)
+    """
+    grads = jnp.gradient(image, axis=(0, 1))
+    grad_y, grad_x = grads[0], grads[1]
+    grad_x = (grad_x - jnp.min(grad_x)) / (jnp.max(grad_x) - jnp.min(grad_x))
+    grad_y = (grad_y - jnp.min(grad_y)) / (jnp.max(grad_y) - jnp.min(grad_y))
+    return jnp.stack([grad_x, grad_y], axis=-1)
+
+def image_laplacian(image: jax.Array)->jax.Array:
+    """
+    get the laplacian array of an image represented as an array  
+    """
+    grads = jnp.gradient(image, axis=(0, 1))
+    grad_y, grad_x = grads[0], grads[1]
+    lap_x = jnp.gradient(grad_x, axis=0)  
+    lap_y = jnp.gradient(grad_y, axis=1)  
+    lap_x = (lap_x - jnp.min(lap_x)) / (jnp.max(lap_x) - jnp.min(lap_x))
+    lap_y = (lap_y - jnp.min(lap_y)) / (jnp.max(lap_y) - jnp.min(lap_y))
+    return lap_x + lap_y
