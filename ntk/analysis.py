@@ -141,63 +141,57 @@ def measure_of_diagonal_strength(ntk: jax.Array, map_kwarg:int =0, exp_scale:flo
     sum_sq = 0
     for i in range(1,size):
         dg = jnp.diag(weighted_ntk, -i)
-        sum_sq += jnp.mean(jnp.square(dg))
+        sum_sq += jnp.sum(jnp.square(dg))
 
 
     rescaled = 2*sum_sq/size
-    return rescaled / jnp.mean(jnp.square(jnp.diag(ntk)))
+    return jnp.squeeze( rescaled / (size*jnp.sum(jnp.square(jnp.diag(ntk)))+1))
 
-
-def generate_tridiagonal(n: int, a: float, b: float, c: float) -> jnp.ndarray:
-    """Generate an n x n tridiagonal matrix with a on the main diagonal,
-    b on the subdiagonal, and c on the superdiagonal."""
-    main_diag = jnp.full(n, a)
-    sub_diag = jnp.full(n - 1, b)
-    super_diag = jnp.full(n - 1, c)
-    return jnp.diag(main_diag) + jnp.diag(sub_diag, -1) + jnp.diag(super_diag, 1)
-
-
-def generate_tridiagonal_bis(n: int, a: float, b: float, c: float) -> jnp.ndarray:
-    """Generate an n x n tridiagonal matrix with a on the main diagonal,
-    b on the subdiagonal, and c on the superdiagonal."""
-    main_diag = jnp.full(n, a)
-    sub_diag = jnp.full(n - 2, b)
-    # super_diag = jnp.full(n - 1, c)
-    super_diag = jnp.full(n - 1, 10)
-    return jnp.diag(main_diag) + jnp.diag(sub_diag, -2) + jnp.diag(super_diag, 1)
-
-
-
-if __name__ == "__main__":
-
-
-
-    n = 5
-    a = 40.0
-    b = 10.0
-    c = 0.0
-    X = generate_tridiagonal(n, a, b, c)
-    print(f"{X=}")
-    print(measure_of_diagonal_strength(X, 0))
-
-    X = jnp.eye(n)
-    print(f"{X=}")
-    print(measure_of_diagonal_strength(X, 0))
-
-
-
-
-
-    print(f"{X=}")
-    print(measure_of_diagonal_strength(X, 0))
-    
-    X = jnp.eye(n).at[4,0].set(12.0)
-    print(f"{X=}")
-    print(measure_of_diagonal_strength(X, 0))
-
-    X_bis = jnp.eye(n).at[4,3].set(12.0)
-    print(f"{X_bis=}")
-    print(measure_of_diagonal_strength(X_bis, 0))
+#
+# def generate_tridiagonal(n: int, a: float, b: float, c: float) -> jnp.ndarray:
+#     """Generate an n x n tridiagonal matrix with a on the main diagonal,
+#     b on the subdiagonal, and c on the superdiagonal."""
+#     main_diag = jnp.full(n, a)
+#     sub_diag = jnp.full(n - 1, b)
+#     super_diag = jnp.full(n - 1, c)
+#     return jnp.diag(main_diag) + jnp.diag(sub_diag, -1) + jnp.diag(super_diag, 1)
+#
+#
+# def generate_tridiagonal_bis(n: int, a: float, b: float, c: float) -> jnp.ndarray:
+#     """Generate an n x n tridiagonal matrix with a on the main diagonal,
+#     b on the subdiagonal, and c on the superdiagonal."""
+#     main_diag = jnp.full(n, a)
+#     sub_diag = jnp.full(n - 2, b)
+#     # super_diag = jnp.full(n - 1, c)
+#     super_diag = jnp.full(n - 1, 10)
+#     return jnp.diag(main_diag) + jnp.diag(sub_diag, -2) + jnp.diag(super_diag, 1)
+#
+#
+#
+# if __name__ == "__main__":
+#
+#     n = 5
+#     a = 40.0
+#     b = 10.0
+#     c = 0.0
+#     X = generate_tridiagonal(n, a, b, c)
+#     print(f"{X=}")
+#     print(measure_of_diagonal_strength(X, 0))
+#
+#     X = jnp.eye(n)
+#     print(f"{X=}")
+#     print(measure_of_diagonal_strength(X, 0))
+#
+#     print(f"{X=}")
+#     print(measure_of_diagonal_strength(X, 0))
+#
+#     X = jnp.eye(n).at[4,0].set(12.0)
+#     print(f"{X=}")
+#     print(measure_of_diagonal_strength(X, 0))
+#
+#     X_bis = jnp.eye(n).at[4,3].set(12.0)
+#     print(f"{X_bis=}")
+#     print(measure_of_diagonal_strength(X_bis, 0))
 
 
 

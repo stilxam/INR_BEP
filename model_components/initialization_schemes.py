@@ -134,8 +134,9 @@ def standard_scheme(in_size: int, out_size: int, num_splits=1, *, layer_type: ty
     :return: An instance of layer_type initialized with standard scheme.
     """
     cls = layer_type
-    activation_kwargs = cls._check_keys({})
-    
+    activation_kwargs = dict(additional_layer_kwargs) if additional_layer_kwargs is not None else {}
+    activation_kwargs = cls._check_keys(activation_kwargs)
+
     w_key, b_key = jax.random.split(key)
 
     # Glorot/Xavier uniform initialization for weights
