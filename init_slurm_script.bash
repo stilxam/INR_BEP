@@ -8,6 +8,7 @@
 #SBATCH --output=./slurm_output/R-%x.%j.out
 module load 2023
 module load Miniconda3/23.5.2-0
+#source /sw/arch/RHEL8/EB_production/2023/software/Miniconda3/23.5.2-0/etc/profile.d/conda.sh
 
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
@@ -30,11 +31,12 @@ conda activate snel_bep  # conda environment name
 wandblogin="$(< ./wandb.login)"  # password stored in a file, don't add this file to your git repo!
 wandb login "$wandblogin"
 
+#if using audio files, run this first
+# python convert_audio_to_npy.py
 
-echo 'Starting new experiment!';
-# python run_parallel.py --config=./configs/example.yaml  # you can put more lines like this one after
-# to do more groups of experements in sequence. 
-# Snellius should be able to train a large batch of experiments in parallel in a very short time
-# so it makes sense to do a couple of batches in sequence in the same script
+#Initializing scale factor experiments: 
 
-python run_from_inr_sweep.py --sweep_id=zxh5yyyn --entity=abdtab-tue > sdf_sweep_example3.out
+echo 'Starting scale factor experiments!';
+# python run_parallel.py --config=./configs/InitialScheme/example_siren.yaml
+# python run_parallel.py --config=./configs/InitialScheme/finer_scheme.yaml
+# python run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml
