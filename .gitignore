@@ -20,6 +20,7 @@ example_data/*.xyz
 /DIV2k_entropy_75p_95p/
 /DIV2k_entropy_bottom_5p/
 /DIV2k_entropy_top_5p/
+/GTZAN/
 /results
 /synthetic_scenes
 .vscode

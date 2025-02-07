@@ -920,9 +920,9 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
         init_alpha = 1.1 
         max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
         
-        self._min_alpha_state_index = eqx.nn.StateIndex(init_alpha)
-        self._alpha_state_index = eqx.nn.StateIndex(init_alpha)
-        self._max_alpha_state_index = eqx.nn.StateIndex(max_alpha)
+        self._min_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._max_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(max_alpha, dtype=jnp.float32))
         super().__init__(embedding_matrix)
 
     @classmethod
@@ -1053,19 +1053,8 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
     def out_size(self, in_size:int)->int:
         return 2*self.embedding_matrix.shape[0]*in_size
 
-    @staticmethod
-    def update_state(self, state, nr_increments):
-
-        current_alpha = state.get(self._alpha_state_index)
-        init_alpha = state.get(self._min_alpha_state_index)
-        max_alpha = state.get(self._max_alpha_state_index)
-
-        increment_size = (max_alpha - init_alpha) / nr_increments
-        current_alpha = jnp.minimum(current_alpha + increment_size, max_alpha)
-
-        return state.set(self._alpha_state_index, current_alpha)
-        
-    def __call__(self, x:jax.Array, state: eqx.nn.State, nr_increments: int, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+            
+    def __call__(self, x:jax.Array, state: eqx.nn.State, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
         
         embedding_matrix = self.weigh_embedding_matrix(state)
 
