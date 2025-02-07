@@ -21,6 +21,7 @@ import numpy as np
 import librosa
 import plotly.graph_objects as go
 import skimage
+import trimesh
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
@@ -419,6 +420,7 @@ class JaccardIndexSDF(Metric):
         grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
 
         self.target_inside = target_function(self.grid_points)
         self.batch_size = batch_size
@@ -431,9 +433,16 @@ class JaccardIndexSDF(Metric):
 
         # pred_values = inr(self.grid_points)
         # pred_values = jax.vmap(inr)(self.grid_points)
-        pred_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
+        sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
         # Convert to occupancy grids (inside = True, outside = False)
-        pred_inside = pred_values <= 0
+        sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
+
+        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+
+        shape = trimesh.Trimesh(vertices=vertices, faces=faces)
+        pred_inside = shape.contains(self.grid_points)
+
+        # pred_inside = pred_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
