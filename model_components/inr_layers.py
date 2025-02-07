@@ -8,6 +8,8 @@ Alternatively one can write an initialization function that comes up with the we
 and then passes those to the __init__ function of the required class.
 """
 import abc
+# from distutils.command.install import value
+# from operator import ifloordiv
 from typing import Union, Callable, Optional
 from collections.abc import Sequence
 import inspect
@@ -44,6 +46,7 @@ class INRLayer(eqx.Module):
     allowed_keys: eqx.AbstractClassVar[
         frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
     allows_multiple_weights_and_biases: eqx.AbstractClassVar[bool]
+    learnable_kwarg_keys: tuple
 
     @classmethod
     def _check_keys(cls, activation_kwargs):
@@ -85,9 +88,13 @@ class INRLayer(eqx.Module):
         """
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
-        return self._activation_function(*args, **jax.lax.stop_gradient(self.activation_kwargs))
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return self._activation_function(*args, **kwargs)
 
-    def __init__(self, weights, biases, **activation_kwargs):
+    def __init__(self, weights, biases, learnable_kwarg_keys:Optional[tuple[str,...]]=None, **activation_kwargs):
         """
         Initialise an INRLayer from its weights, biases, and activation_kwargs
         """
@@ -96,6 +103,7 @@ class INRLayer(eqx.Module):
         self.biases = biases
         activation_kwargs = self._check_keys(activation_kwargs)
         self.activation_kwargs = activation_kwargs
+        self.learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
 
     def __init_subclass__(cls):
         """__init_subclass__
