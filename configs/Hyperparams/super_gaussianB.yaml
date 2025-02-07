@@ -2,9 +2,9 @@
 # the arguments in here will be varied
 activation_kwargs:
     a: [0.05, 0.075, 0.09, 0.1, 0.11, 0.125, 0.15, 0.2]
-    b: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    b: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
-learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]
+learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
