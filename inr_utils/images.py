@@ -419,7 +419,12 @@ def image_grads(image: jax.Array)->jax.Array:
     grad_y, grad_x = grads[0], grads[1]
     grad_x = (grad_x - jnp.min(grad_x)) / (jnp.max(grad_x) - jnp.min(grad_x))
     grad_y = (grad_y - jnp.min(grad_y)) / (jnp.max(grad_y) - jnp.min(grad_y))
-    return jnp.stack([grad_x, grad_y], axis=-1)
+    #return jnp.stack([grad_x, grad_y], axis=-1)
+    return jnp.stack([grad_y, grad_x], axis=-1)
+
+def image_grads_alternative(image: jax.Array)->jax.Array:
+    scaled_image = image.astype(jnp.float32)/255.
+    return jnp.stack(jnp.gradient(scaled_image), axis=-1)
 
 def image_laplacian(image: jax.Array)->jax.Array:
     """
