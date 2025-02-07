@@ -275,7 +275,10 @@ class SoundLossEvaluator(eqx.Module):
 
         # Evaluate INR at time points - vmap over batch and window dimensions
         #inr_values = jax.vmap(lambda t: jax.vmap(lambda ti: inr(ti))(t))(time_points)
-        inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
+        if state is None:
+            inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
+        else:
+            inr_values, _ = jax.vmap(jax.vmap(inr, (0, None)), (0, None))(time_points, state)
         inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
 
         # Calculate time domain MSE loss

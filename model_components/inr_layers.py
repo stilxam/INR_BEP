@@ -8,6 +8,8 @@ Alternatively one can write an initialization function that comes up with the we
 and then passes those to the __init__ function of the required class.
 """
 import abc
+# from distutils.command.install import value
+# from operator import ifloordiv
 from typing import Union, Callable, Optional
 from collections.abc import Sequence
 import inspect
@@ -44,6 +46,7 @@ class INRLayer(eqx.Module):
     allowed_keys: eqx.AbstractClassVar[
         frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
     allows_multiple_weights_and_biases: eqx.AbstractClassVar[bool]
+    learnable_kwarg_keys: tuple
 
     @classmethod
     def _check_keys(cls, activation_kwargs):
@@ -85,9 +88,13 @@ class INRLayer(eqx.Module):
         """
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
-        return self._activation_function(*args, **jax.lax.stop_gradient(self.activation_kwargs))
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return self._activation_function(*args, **kwargs)
 
-    def __init__(self, weights, biases, **activation_kwargs):
+    def __init__(self, weights, biases, learnable_kwarg_keys:Optional[tuple[str,...]]=None, **activation_kwargs):
         """
         Initialise an INRLayer from its weights, biases, and activation_kwargs
         """
@@ -96,6 +103,7 @@ class INRLayer(eqx.Module):
         self.biases = biases
         activation_kwargs = self._check_keys(activation_kwargs)
         self.activation_kwargs = activation_kwargs
+        self.learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
 
     def __init_subclass__(cls):
         """__init_subclass__
@@ -920,9 +928,9 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
         init_alpha = 1.1 
         max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
         
-        self._min_alpha_state_index = eqx.nn.StateIndex(init_alpha)
-        self._alpha_state_index = eqx.nn.StateIndex(init_alpha)
-        self._max_alpha_state_index = eqx.nn.StateIndex(max_alpha)
+        self._min_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._max_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(max_alpha, dtype=jnp.float32))
         super().__init__(embedding_matrix)
 
     @classmethod
@@ -1053,19 +1061,8 @@ class IntegerLatticeEncoding(PositionalEncodingLayer):
     def out_size(self, in_size:int)->int:
         return 2*self.embedding_matrix.shape[0]*in_size
 
-    @staticmethod
-    def update_state(self, state, nr_increments):
-
-        current_alpha = state.get(self._alpha_state_index)
-        init_alpha = state.get(self._min_alpha_state_index)
-        max_alpha = state.get(self._max_alpha_state_index)
-
-        increment_size = (max_alpha - init_alpha) / nr_increments
-        current_alpha = jnp.minimum(current_alpha + increment_size, max_alpha)
-
-        return state.set(self._alpha_state_index, current_alpha)
-        
-    def __call__(self, x:jax.Array, state: eqx.nn.State, nr_increments: int, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+            
+    def __call__(self, x:jax.Array, state: eqx.nn.State, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
         
         embedding_matrix = self.weigh_embedding_matrix(state)
 

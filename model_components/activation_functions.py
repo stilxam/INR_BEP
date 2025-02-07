@@ -289,7 +289,7 @@ def exp_sin_activation(x: jax.Array, a: float) -> jax.Array:
 
 
 
-def laplacian(x:jax.Array, a:float):
+def laplacian(x:jax.Array, a:float) -> jax.Array:
     """
     e^(-|x|/a)
     :param x: jax.Array

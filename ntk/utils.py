@@ -1,3 +1,5 @@
+from typing import Dict
+
 def layer_name_to_title(layer_name: str) -> str:
     """Convert layer name to display title."""
     titles = {
