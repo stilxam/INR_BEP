@@ -33,7 +33,7 @@ wandb login "$wandblogin"
 
 
 echo 'Starting new experiment!';
-# python run_parallel.py --config=./configs/Hyperparams/example.yaml
+python run_parallel.py --config=./configs/Hyperparams/example.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERk.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERkt.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERkt2.yaml   
@@ -43,7 +43,7 @@ echo 'Starting new experiment!';
 # python run_parallel.py --config=./configs/Hyperparams/hosc.yaml
 # python run_parallel.py --config=./configs/Hyperparams/gaussian_bump.yaml
 # python run_parallel.py --config=./configs/Hyperparams/exp_sin.yaml
-python run_parallel.py --config=./configs/Hyperparams/CWIRE.yaml
+# python run_parallel.py --config=./configs/Hyperparams/CWIRE.yaml
 # python run_parallel.py --config=./configs/Hyperparams/RWIRE.yaml
 # python run_parallel.py --config=./configs/Hyperparams/laplacian.yaml
 # python run_parallel.py --config=./configs/Hyperparams/super_gaussian.yaml

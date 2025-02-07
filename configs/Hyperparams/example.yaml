@@ -1,9 +1,10 @@
 ---
 # the arguments in here will be varried
 activation_kwargs:
-    w0: [10., 10., 15., 15., 20., 20., 25., 25., 30., 30., 35., 35.]
+    w0: [10., 12.5, 14.0, 15.5, 17.0, 18.5, 20., 22.5, 25., 30., 35., 40]
 
-learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
+
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
 # the arguments in here will be shared across experiments :)
@@ -16,6 +17,7 @@ model_config:
   num_layers: 5
   layer_type: inr_layers.SirenLayer
   num_splits: 1
+  learnable_kwarg_keys: []
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -49,7 +51,8 @@ metrics:
 storage_directory: results/example_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: example  # set a group parameter to filter later on in wandb
+  group: Tsiren_sweep # set a group parameter to filter later on in wandb
+
 
 # for some of the metrics
 target_function: images.ContinuousImage

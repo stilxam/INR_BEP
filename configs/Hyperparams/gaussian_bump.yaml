@@ -3,7 +3,7 @@
 activation_kwargs:
     inverse_scale: [1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]
 
-learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4]
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
@@ -16,6 +16,7 @@ model_config:
   num_layers: 5
   layer_type: inr_layers.GaussianINRLayer
   num_splits: 1
+  learnable_kwarg_keys: []
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -48,7 +49,7 @@ metrics:
 storage_directory: results/gaussian_bump_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: gaussian_bump_sweep 
+  group: Tgaussian_bump_sweep 
 
 # for some of the metrics
 target_function: images.ContinuousImage

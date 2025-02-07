@@ -1,10 +1,10 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    a: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    b: [0.5, 1.0, 2.0, 0.5, 1.0, 2.0, 0.5, 1.0, 2.0]
+    a: [0.075, 0.1, 0.2, 0.25, 0.3, 0.325, 0.45, 0.5]
+    b: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
-learning_rate: [1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4, 1.e-4, 1.5e-4, 3.e-4]
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
@@ -17,6 +17,7 @@ model_config:
   num_layers: 5
   layer_type: inr_layers.SuperGaussianLayer
   num_splits: 1
+  learnable_kwarg_keys: []
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -49,7 +50,7 @@ metrics:
 storage_directory: results/super_gaussian_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: super_gaussian_sweep 
+  group: Tsuper_gaussian_A 
 
   # for some of the metrics
 target_function: images.ContinuousImage
