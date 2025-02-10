@@ -437,12 +437,11 @@ class JaccardIndexSDF(Metric):
         # Convert to occupancy grids (inside = True, outside = False)
         sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
 
-        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+        vertices, faces, normals, values = skimage.measure.marching_cubes(np.array(sdf_reshaped), level=0.0)
 
         shape = trimesh.Trimesh(vertices=vertices, faces=faces)
         pred_inside = shape.contains(self.grid_points)
 
-        # pred_inside = pred_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
@@ -477,10 +476,20 @@ class SDFReconstructor(Metric):
     def __init__(self,
                  grid_resolution: int,
                  batch_size: int,
-                 frequency: str = 'every_n_batches'
+                 frequency: str = 'every_n_batches',
+                 num_dims: int = 3,
                  ):
+
+        if isinstance(grid_resolution, int):
+            grid_resolution = (grid_resolution,) * num_dims
+
+            # Create evaluation grid
+        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
+        grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
+        self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
+
         self.frequency = MetricFrequency(frequency)
-        self.resolution = grid_resolution
         self.batch_size = batch_size
 
     # def __call__(self, *args, **kwargs) -> dict:
@@ -490,68 +499,12 @@ class SDFReconstructor(Metric):
 
         state = kwargs.get("state", None)
 
-        grid = make_lin_grid(-1, 1, self.resolution, 3)
-        grid = grid.reshape((-1, 3))
 
-        # sdf_values = jax.vmap(inr)(grid)
-        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
-        # batched_grid = grid.reshape((-1, self.batch_size, 3))
-        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
-        # sdf_values = batched_sdf_values.reshape((-1, 1))
-        fig = go.Figure(data=go.Isosurface(
-            x=grid[:, 0],
-            y=grid[:, 1],
-            z=grid[:, 2],
-            value=sdf_values,
-            isomin=-0.1,
-            isomax=0.1,
-            surface_count=1,
-            caps=dict(x_show=False, y_show=False, z_show=False)
-        ))
-        return {"Zero Level Set": fig}
+        sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
-    @staticmethod
-    def wrap_inr(inr):
-        def wrapped(*args, **kwargs):
-            out = inr(*args, **kwargs)
-            if isinstance(out, tuple):
-                out = out[0]
-            out = out.squeeze()
-            return out
-
-        return wrapped
-
-
-class MarchingCube(Metric):
-    """
-    Reconstructs the SDF of a mesh from an INR
-    """
-    required_kwargs = set({'inr'})
-
-    def __init__(self,
-                 resolution: int = 100,
-                 batch_size: int = 1024
-                 ):
-        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
-        self.resolution = resolution
-        self.batch_size = batch_size
-
-    # def __call__(self, *args, **kwargs) -> dict:
-    def compute(self, **kwargs) -> dict:
-        inr = kwargs['inr']
-        inr = self.wrap_inr(inr)
-
-        state = kwargs.get("state", None)
-
-        grid = make_lin_grid(-1, 1, self.resolution, 3)
-        grid = grid.reshape((-1, 3))
-
-        # sdf_values = jax.vmap(inr)(grid)
-        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
-        # batched_grid = grid.reshape((-1, self.batch_size, 3))
-        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
-        sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
-        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+        vertices, faces, normals, values = skimage.measure.marching_cubes(
+            np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
+            level=0.0)
 
         fig = go.Figure(go.Mesh3d(
             x=vertices[:, 0],
@@ -562,8 +515,6 @@ class MarchingCube(Metric):
             k=faces[:, 2],
         ))
         return {"Zero Level Set": fig}
-    
-
 
     @staticmethod
     def wrap_inr(inr):
@@ -575,6 +526,65 @@ class MarchingCube(Metric):
             return out
 
         return wrapped
+
+
+# class MarchingCube(Metric):
+#     """
+#     Reconstructs the SDF of a mesh from an INR
+#     """
+#     required_kwargs = set({'inr'})
+#
+#     def __init__(self,
+#                  resolution: int = 100,
+#                  batch_size: int = 1024,
+#                  frequency: str = 'every_n_batches',
+#                  ):
+#         self.frequency = MetricFrequency(frequency)  # Default frequency
+#         self.resolution = resolution
+#         self.batch_size = batch_size
+#
+#     # def __call__(self, *args, **kwargs) -> dict:
+#     def compute(self, **kwargs) -> dict:
+#         inr = kwargs['inr']
+#         inr = self.wrap_inr(inr)
+#
+#         state = kwargs.get("state", None)
+#
+#         grid = make_lin_grid(-1, 1, self.resolution, 3)
+#         grid = grid.reshape((-1, 3))
+#
+#         # sdf_values = jax.vmap(inr)(grid)
+#
+#         sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
+#         # batched_grid = grid.reshape((-1, self.batch_size, 3))
+#         # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
+#         sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
+#
+#         vertices, faces, normals, values = skimage.measure.marching_cubes(np.array(sdf_reshaped), level=0.0)
+#
+#
+#         fig = go.Figure(go.Mesh3d(
+#             x=vertices[:, 0],
+#             y=vertices[:, 1],
+#             z=vertices[:, 2],
+#             i=faces[:, 0],
+#             j=faces[:, 1],
+#             k=faces[:, 2],
+#         ))
+#         return {"Zero Level Set": fig}
+    
+    #
+    #
+    # @staticmethod
+    # def wrap_inr(inr):
+    #     def wrapped(*args, **kwargs):
+    #         out = inr(*args, **kwargs)
+    #         if isinstance(out, tuple):
+    #             out = out[0]
+    #         out = out.squeeze()
+    #         return out
+    #
+    #     return wrapped
 
 
 from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
