@@ -32,11 +32,11 @@ wandb login "$wandblogin"
 
 
 echo 'Starting new experiment!';
-python run_parallel.py --config=./configs/example.yaml  # you can put more lines like this one after
+#python run_parallel.py --config=./configs/example.yaml  # you can put more lines like this one after
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
 # so it makes sense to do a couple of batches in sequence in the same script
 
 
 # sdf sweep??
-#python run_from_inr_sweep.py --sweep_id=gie5fxqw > sdf_sweep_example.out
+python run_from_inr_sweep.py --sweep_id=gie5fxqw > sdf_sweep_example.out
