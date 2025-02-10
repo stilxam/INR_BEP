@@ -1,12 +1,12 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    a: [0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+    a: [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
 
-learning_rate: [1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5]
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
-# shared configuration
+# shared arguments
 architecture: ./model_components
 model_type: inr_modules.MLPINR.from_config
 model_config:
@@ -14,9 +14,13 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.ExpSinLayer
+  layer_type: inr_layers.LaplacianLayer
   num_splits: 1
   learnable_kwarg_keys: []
+  positional_encoding_layer: ['inr_layers.ClassicalPositionalEncoding.from_config', {
+    'num_frequencies': 10,
+    'frequency_scaling': 2.0
+  }]
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -40,21 +44,20 @@ optimizer: adam
 steps: 40000
 
 ---
-# post-processing configuration
+# post-processing config
 components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
   - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
-storage_directory: results/exp_sin_experiment
+storage_directory: results/example_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: Texp_sin_sweep 
+  group: laplacian_pe_sweep
 
-  # for some of the metrics
 target_function: images.ContinuousImage
 target_function_config:
   image: ./example_data/parrot.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
-  data_index: None
+  data_index: None 

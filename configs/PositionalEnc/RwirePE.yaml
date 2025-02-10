@@ -1,9 +1,10 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    a: [0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+    s0: [10.0, 14.3, 18.6, 22.9, 27.1, 31.4, 35.7, 40.0]  
+    w0: [5.0, 9.3, 13.6, 17.9, 22.1, 26.4, 30.7, 35.0]  
 
-learning_rate: [1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5, 1.e-4, 1.5e-5]
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
@@ -14,9 +15,13 @@ model_config:
   out_size: 3
   hidden_size: 256
   num_layers: 5
-  layer_type: inr_layers.ExpSinLayer
+  layer_type: inr_layers.RealWIRE
   num_splits: 1
   learnable_kwarg_keys: []
+  positional_encoding_layer: ['inr_layers.ClassicalPositionalEncoding.from_config', {
+    'num_frequencies': 10,
+    'frequency_scaling': 2.0
+  }]
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
@@ -46,12 +51,12 @@ post_processor_type: post_processing.PostProcessor
 metrics: 
   - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
-storage_directory: results/exp_sin_experiment
+storage_directory: results/real_gabor_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: Texp_sin_sweep 
+  group: Treall_gabor_sweep
 
-  # for some of the metrics
+# for some of the metrics
 target_function: images.ContinuousImage
 target_function_config:
   image: ./example_data/parrot.png

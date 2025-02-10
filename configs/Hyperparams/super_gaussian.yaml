@@ -1,10 +1,10 @@
 ---
 # the arguments in here will be varied
 activation_kwargs:
-    a: [0.075, 0.1, 0.2, 0.25, 0.3, 0.325, 0.45, 0.5]
-    b: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    a: [0.03, 0.04, 0.05, 0.075, 0.09, 0.1, 0.125, 0.15, 0.2, 0.5]
+    b: [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5]
 
-learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
+learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
 ---
 # shared configuration
@@ -50,7 +50,7 @@ metrics:
 storage_directory: results/super_gaussian_experiment
 wandb_kwargs:
   project: inr_edu_24
-  group: Tsuper_gaussian_A 
+  group: super_gaussian_A 
 
   # for some of the metrics
 target_function: images.ContinuousImage
