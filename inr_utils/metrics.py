@@ -260,6 +260,7 @@ class MSEOnFixedGrid(Metric):
         return {'MSE_on_fixed_grid': mse}
 
 
+
 class AudioMetricsOnGrid(Metric):
     """
     Evaluate audio metrics between the INR output and target audio.
@@ -321,29 +322,76 @@ class AudioMetricsOnGrid(Metric):
         else:
             self._evaluate_on_grid = self._evaluate_at_once
 
-    def _compute_snr(self, original: np.ndarray, reconstructed: np.ndarray) -> float:
-        """Compute Signal-to-Noise Ratio."""
-        noise = original - reconstructed
-        signal_power = np.sum(original ** 2)
-        noise_power = np.sum(noise ** 2)
+    def _compute_audio_metrics(self, original: np.ndarray, reconstructed: np.ndarray) -> dict:
+        """Compute comprehensive audio quality metrics."""
+        
+        # Ensure inputs are the right shape and type
+        original = original.reshape(1, -1)
+        reconstructed = reconstructed.reshape(1, -1)
+        
+        # Original metrics (MSE, SNR, PSNR)
+        mse = np.mean((original - reconstructed) ** 2)
+        
+        # SNR calculation
+        signal_power = np.mean(original ** 2)
+        noise_power = np.mean((original - reconstructed) ** 2)
+        snr = 10 * np.log10(signal_power / noise_power)
+        
+        # PSNR calculation
+        max_val = np.max(np.abs(original))
+        psnr = 20 * np.log10(max_val) - 10 * np.log10(mse)
+        
+        # SI-SNR calculation
+        def compute_si_snr(x: jax.Array, y: jax.Array) -> float:
+            """Scale-Invariant Signal-to-Noise Ratio"""
+            # Zero-mean normalization
+            x = x - jnp.mean(x)
+            y = y - jnp.mean(y)
+            
+            # Calculate scale factor
+            alpha = jnp.sum(x * y) / (jnp.sum(x * x) + 1e-8)
+            
+            # Calculate SI-SNR
+            scaled = alpha * x
+            noise = y - scaled
+            si_snr = 10 * jnp.log10(
+                jnp.sum(scaled * scaled) / (jnp.sum(noise * noise) + 1e-8)
+            )
+            return float(si_snr)
 
-        if noise_power == 0:
-            return float('inf')
+        def compute_stoi(x: np.ndarray, y: np.ndarray, fs: int = 16000) -> float:
+            """Short-Time Objective Intelligibility"""
+            try:
+                from pystoi.stoi import stoi
+                return float(stoi(x.squeeze(), y.squeeze(), fs, extended=False))
+            except ImportError:
+                print("pystoi not installed. STOI calculation skipped.")
+                return float('nan')
 
-        return 10 * np.log10(signal_power / noise_power)
+        def compute_pesq(x: np.ndarray, y: np.ndarray, fs: int = 16000) -> float:
+            """Perceptual Evaluation of Speech Quality"""
+            try:
+                from pesq import pesq
+                return float(pesq(fs, x.squeeze(), y.squeeze(), 'wb'))
+            except ImportError:
+                print("pesq not installed. PESQ calculation skipped.")
+                return float('nan')
+            except Exception as e:
+                print(f"PESQ calculation failed: {str(e)}")
+                return float('nan')
 
-    def _compute_spectral_metrics(self, original: np.ndarray, reconstructed: np.ndarray) -> Tuple[float, float]:
-        """Compute spectral convergence and magnitude error."""
-        orig_spec = np.abs(librosa.stft(original))
-        recon_spec = np.abs(librosa.stft(reconstructed))
-
-        # Spectral convergence
-        spec_conv = np.linalg.norm(orig_spec - recon_spec, 'fro') / np.linalg.norm(orig_spec, 'fro')
-
-        # Magnitude error
-        mag_error = np.mean(np.abs(orig_spec - recon_spec))
-
-        return spec_conv, mag_error
+        # Compute all metrics
+        metrics = {
+            'mse': float(mse),
+            'snr': float(snr),
+            'psnr': float(psnr),
+            'si_snr': compute_si_snr(jnp.array(original.squeeze()), 
+                                    jnp.array(reconstructed.squeeze())),
+            'stoi': compute_stoi(original, reconstructed, self.sr),
+            'pesq': compute_pesq(original, reconstructed, self.sr)
+        }
+        
+        return metrics
 
     def compute(self, **kwargs):
         inr = kwargs['inr']
@@ -365,26 +413,16 @@ class AudioMetricsOnGrid(Metric):
         # Save reconstructed audio if path is provided
         if self.save_path:
             import soundfile as sf
-            sf.write(self.save_audio, reconstructed, self.sr)
+            sf.write(self.save_path, reconstructed, self.sr)
 
-        # Compute time domain metrics
-        mse = np.mean((original - reconstructed) ** 2)
-        snr = self._compute_snr(original, reconstructed)
-        psnr = 20 * np.log10(1.0 / np.sqrt(mse)) if mse > 0 else float('inf')
-
-        # Compute frequency domain metrics
-        spec_conv, mag_error = self._compute_spectral_metrics(original, reconstructed)
-
-        metrics = {
-            'audio_snr': snr,
-            'audio_psnr': psnr,
-            'audio_mse': mse,
-            'audio_spectral_convergence': spec_conv,
-            'audio_magnitude_error': mag_error,
-            'reconstructed_audio': reconstructed  # Add reconstructed audio to metrics
-        }
+        # Compute all metrics
+        metrics = self._compute_audio_metrics(original, reconstructed)
+        
+        # Add reconstructed audio to metrics
+        metrics['reconstructed_audio'] = reconstructed
 
         return metrics
+
 
 
 class JaccardIndexSDF(Metric):

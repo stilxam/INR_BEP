@@ -32,7 +32,7 @@ loss_evaluator: losses.SoundLossEvaluator
 loss_function: losses.SoundLossEvaluator
 loss_evaluator_config:
   time_domain_weight: 1.0
-  frequency_domain_weight: 0.0001
+  frequency_domain_weight: 0.00001
 
 sampler: [sampling.SoundSampler, {
     window_size: 256,
@@ -67,6 +67,6 @@ batch_frequency: 1
 storage_directory: results/local_test
 wandb_kwargs:
   project: inr_edu_24
-  group: local_test
+  group: audio_test
 
 
