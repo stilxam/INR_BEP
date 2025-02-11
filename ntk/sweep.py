@@ -18,8 +18,8 @@ def setup_sweep_config() -> Tuple[str, float, Optional[float], Dict[str, Any]]:
     """Initialize wandb and get configuration parameters."""
     wandb.init()
     layer_type = wandb.config.layer_type
-    param1= wandb.config.param1
-    param2= wandb.config.get("param2", None)
+    param1= wandb.config.get("w0", None)
+    param2= wandb.config.get("s0", None)
 
     activation_kwargs = get_activation_kwargs(layer_type, param1, param2)
     return layer_type, param1, param2, activation_kwargs
@@ -58,9 +58,7 @@ def main_sweep() -> None:
         "layer_type": layer_type,
         "activation_kwargs": activation_kwargs,
         "ntk_condition_number": float(condition_number),
-        # "max_eigenvalue": float(eigvals[0]),
-        # "min_eigenvalue": float(eigvals[-1]),
-        "eigvals": wandb.Histogram(eigvals),
+        "eigvals": eigvals,
         "ntk_plot": wandb.Image(ntk_fig),
         "lin_measure": float(lin_measure),
         "const_measure": float(const_measure),
