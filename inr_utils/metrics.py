@@ -528,6 +528,102 @@ class SDFReconstructor(Metric):
         return wrapped
 
 
+class JaccardAndReconstructionIndex(Metric):
+    """
+    Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function,
+    and reconstruct the SDF of the INR as a 3D mesh.
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            target_function: eqx.Module,
+            grid_resolution: Union[int, tuple[int, ...]],
+            batch_size: int,
+            num_dims: int = 3,  # Default to 3D for SDFs
+            frequency: str = 'every_n_batches'
+    ):
+        """
+        Args:
+            target_function: The target SDF function to compare against
+            grid_resolution: Resolution of evaluation grid. Either single int for uniform resolution
+                           or tuple specifying resolution per dimension
+            num_dims: Number of dimensions (defaults to 3 for SDFs)
+        """
+        self.frequency = MetricFrequency(frequency)
+
+        # Handle grid resolution specification
+        if isinstance(grid_resolution, int):
+            grid_resolution = (grid_resolution,) * num_dims
+
+        # Create evaluation grid
+        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
+        grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
+        self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
+
+        self.target_inside = target_function(self.grid_points)
+        self.batch_size = batch_size
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        state = kwargs.get("state", None)
+
+        inr = self.wrap_inr(inr)
+
+
+        sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
+
+        # clipped_vals = np.clip(sdf_values, -0.1, 0.1)
+
+        # vertices, faces, normals, values = skimage.measure.marching_cubes(
+        #     np.array(clipped_vals.reshape(self.resolution, self.resolution, self.resolution)),
+        #     level=0.0)
+
+        # shape = trimesh.Trimesh(vertices=vertices, faces=faces)
+        # pred_inside = shape.contains(self.grid_points)
+
+        fig = go.Figure(data=go.Isosurface(
+            x=self.grid_points[:, 0],
+            y=self.grid_points[:, 1],
+            z=self.grid_points[:, 2],
+            value=sdf_values,
+            isomin=-0.1,
+            isomax=0.1,
+            surface_count=1,
+            caps=dict(x_show=False, y_show=False, z_show=False)
+        ))
+
+        pred_inside = sdf_values <= 0
+
+
+        # Compute intersection and union
+        intersection = np.logical_and(pred_inside, self.target_inside)
+        union = np.logical_or(pred_inside, self.target_inside)
+
+        # Calculate Jaccard index
+        intersection_sum = np.sum(intersection)
+        union_sum = np.sum(union)
+
+        jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
+
+        return {
+            'jaccard_index': float(jaccard),
+            "Zero Level Set": fig
+        }
+
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
+
 # class MarchingCube(Metric):
 #     """
 #     Reconstructs the SDF of a mesh from an INR
