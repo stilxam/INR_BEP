@@ -28,7 +28,7 @@ from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise,
     make_lin_grid, make_gif
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
-
+from pathlib import Path
 
 
 class PlotOnGrid2D(Metric):
@@ -266,30 +266,39 @@ class AudioMetricsOnGrid(Metric):
     Evaluate audio metrics between the INR output and target audio.
     """
     required_kwargs = set({'inr'})
-
+    
     def __init__(
             self,
             target_audio: np.ndarray,
-            grid_size: int,
+            grid_size: Optional[int] = None,
             batch_size: int = 1024,
             sr: int = 16000,
             frequency: str = 'every_n_batches',
-            save_path: Optional[str] = None  # New parameter for saving audio
+            save_path: Optional[str] = None
     ):
         """
         Args:
             target_audio: Original audio signal to compare against
-            grid_size: Number of time points to evaluate
+            grid_size: Number of time points to evaluate. If None, uses target audio length
             batch_size: Size of batches for evaluation
             sr: Sampling rate of the audio
             frequency: How often to compute metrics
             save_path: Path to save reconstructed audio (optional)
         """
+        self.frequency = MetricFrequency(frequency)
+        
+        # Load target audio if it's a path
+        if isinstance(target_audio, (str, Path)):
+            target_audio = np.load(target_audio)
         self.target_audio = target_audio
+        
+        # Use target audio length if grid_size is None
+        if grid_size is None:
+            grid_size = len(target_audio)
+        
         self.sr = sr
         self.save_path = save_path
-        self.frequency = MetricFrequency(frequency)
-
+        
         # Create time grid for evaluation
         self.grid = jnp.linspace(0, 1, grid_size)
 
@@ -418,8 +427,23 @@ class AudioMetricsOnGrid(Metric):
         # Compute all metrics
         metrics = self._compute_audio_metrics(original, reconstructed)
         
-        # Add reconstructed audio to metrics
-        metrics['reconstructed_audio'] = reconstructed
+        # Log audio to wandb
+        try:
+            import wandb
+            metrics['reconstructed_audio'] = wandb.Audio(
+                reconstructed, 
+                sample_rate=self.sr,
+                caption="Reconstructed Audio"
+            )
+            metrics['original_audio'] = wandb.Audio(
+                original,
+                sample_rate=self.sr,
+                caption="Original Audio"
+            )
+        except ImportError:
+            # If wandb is not available, just return the raw audio array
+            metrics['reconstructed_audio'] = reconstructed
+            metrics['original_audio'] = original
 
         return metrics
 

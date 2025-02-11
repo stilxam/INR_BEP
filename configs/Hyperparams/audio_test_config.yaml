@@ -1,9 +1,9 @@
 ---
 # Reduced parameter combinations for testing
 activation_kwargs:
-    w0: [15., 25.]  # Reduced from 12 to 2 combinations
+    w0: [15., 20., 25., 30., 35., 40., 45., 50.]  # Reduced from 12 to 2 combinations
 
-learning_rate: [1.e-5, 1.5e-4]  # Reduced accordingly
+learning_rate: [1.e-5, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]  # Reduced accordingly
 
 ---
 # Same shared configuration as audioex.yaml but with reduced steps
@@ -32,7 +32,7 @@ loss_evaluator: losses.SoundLossEvaluator
 loss_function: losses.SoundLossEvaluator
 loss_evaluator_config:
   time_domain_weight: 1.0
-  frequency_domain_weight: 0.00001
+  frequency_domain_weight: 0.0000001
 
 sampler: [sampling.SoundSampler, {
     window_size: 256,
@@ -46,7 +46,7 @@ optimizer: adam
 optimizer_config:
   b1: 0.8
   b2: 0.999999
-steps: 1000  # Reduced from 20000 for faster testing
+steps: 20000  # Reduced from 20000 for faster testing
 
 ---
 # Same post-processing configuration but with reduced metrics frequency

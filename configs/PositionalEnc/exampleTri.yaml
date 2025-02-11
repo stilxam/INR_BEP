@@ -3,6 +3,7 @@
 activation_kwargs:
     w0: [10., 12.5, 14.0, 15.5, 17.0, 18.5, 20., 22.5, 25., 30., 35., 40]
 
+scale_param: [1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]
 
 learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]
 
@@ -18,11 +19,17 @@ model_config:
   layer_type: inr_layers.SirenLayer
   num_splits: 1
   learnable_kwarg_keys: []
-  positional_encoding_layer: ['inr_layers.TridentPositionalEncoding.from_config', {
-    'num_frequency': 10,
-    'frequency_param': 2.0,
-    'scale_param': 1.0
-  }]
+  positional_encoding_layer: 'inr_layers.TridentPositionalEnCoding.from_config'
+  positional_encoding_layer_config:
+    num_frequency: 10
+    frequency_param: 2.0
+    
+    # scale_param: 1.0
+  # positional_encoding_layer: ['inr_layers.TridentPositionalEncoding.from_config', {
+  #   'num_frequency': 10,
+  #   'frequency_param': 2.0,
+  #   'scale_param': 1.0
+  # }]
 
 trainer_module: ./inr_utils/
 trainer_type: training.train_inr_scan
