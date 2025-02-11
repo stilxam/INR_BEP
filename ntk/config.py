@@ -47,7 +47,7 @@ def get_sweep_configuration() -> Dict[str, Any]:
                     "inr_layers.ExpSinLayer",
                 ]
             },
-            "param1": {"values": [0.1, 1.0, 5.0, 10.0, 17.5, 25.0, 32.5, 50]},
+            "w0": {"values": [0.1, 1.0, 5.0, 10.0, 17.5, 25.0, 32.5, 50]},
         },
     }
 
@@ -67,10 +67,10 @@ def get_2d_sweep_configuration() -> Dict[str, Any]:
                     "inr_layers.SuperGaussianLayer",
                 ]
             },
-            "param1": {
+            "w0": {
                 "values": [0, 1.0, 5.0, 10.0, 17.5, 25.0, 32.5, 50]
             },
-            "param2": {
+            "s0": {
                 "values": [0, 1.0, 5.0, 10.0, 17.5, 25.0, 32.5, 50]
             },
         },
