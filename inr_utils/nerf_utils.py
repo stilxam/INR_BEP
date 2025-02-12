@@ -562,9 +562,10 @@ class SyntheticScenesDataLoader:
             return ray_origins, ray_directions, return_key, ground_truth_pixel_values
 
     def __init__(self, split: str, name: str, batch_size: int, poses_per_batch: int,
-                 base_path: str = "./synthetic_scenes", size_limit: int = -1, *, key: jax.Array):
+                 base_path: str = "example_data/synthetic_scenes", size_limit: int = -1, *, key: jax.Array):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
+
 
         folder = f"{base_path}/{split}/{name}"
         if not os.path.exists(folder):

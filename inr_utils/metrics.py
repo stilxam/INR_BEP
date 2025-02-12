@@ -685,6 +685,7 @@ class JaccardAndReconstructionIndex(Metric):
 
 from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
 from skimage.metrics import structural_similarity as ssim
+from PIL import Image
 
 class ViewSynthesisComparison(Metric):
     """
@@ -696,8 +697,6 @@ class ViewSynthesisComparison(Metric):
             self,
             split: str,
             name: str,
-            width: int,
-            height: int,
             batch_size: int,
             frequency: str,
             num_coarse_samples: int,
@@ -735,6 +734,15 @@ class ViewSynthesisComparison(Metric):
                          ray_directions=ray_directions)
                 print(f"    finished creating {target_path}")
 
+        file_base_names = [
+            file_name.removesuffix('.png')
+            for file_name in os.listdir(f"{folder}/rgb")
+        ]
+        with Image.open(f"{folder}/rgb/{file_base_names[0]}.png") as example_image:
+            image_size = example_image.size
+
+
+
         self.view_reconstructor = ViewReconstructor(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
@@ -744,16 +752,16 @@ class ViewSynthesisComparison(Metric):
             white_bkgd=white_bkgd,
             lindisp=lindisp,
             randomized=randomized,
-            height=height,
-            width=width,
+            height=image_size[0],
+            width=image_size[1],
             folder=folder,
             key=jax.random.PRNGKey(0)
         )
 
 
         self.frequency = MetricFrequency(frequency)
-        self.width = width
-        self.height = height
+        self.width = image_size[0]
+        self.height = image_size[1]
         self.batch_size = batch_size
 
     def compute(self, **kwargs) -> dict:
