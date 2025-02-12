@@ -25,7 +25,7 @@ import trimesh
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
-    make_lin_grid, make_gif
+    make_lin_grid, make_gif, ContinuousImage
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 
@@ -257,6 +257,104 @@ class MSEOnFixedGrid(Metric):
             inr = handle_state(inr, state)
         mse = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
         return {'MSE_on_fixed_grid': mse}
+    
+class ImageGradMetrics(Metric):
+    """ 
+    Evaluate the INR and the target function on a fixed grid and return the shifted mean squared error between the two
+    and show the actual image
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            target_function: ContinuousImage,
+            grid: Union[jax.Array, int, list[int]],
+            batch_size: int,
+            frequency: str,
+            num_dims: Union[int, None] = None,
+            use_wandb: bool = True,
+    ):
+        """ 
+        :parameter target_function: the target function to compare the INR to
+        :parameter grid: grid on which to evaluate the inr
+            if this is an integer i, an i times i times... times i grid will be created 
+                (so of shape (i, ..., i, num_dims) with num_dims axes of size i).
+            if this is a tuple of integers (i_0, ..., i_{n-1}), a linear grid with shape (i_0, ..., i_{n-1}, n) will be created
+            if this is a jax.Array, this array will be used as the grid 
+                (should be of shape (grid_dimensions..., num_channels) where the inr takes num_channels inputs)
+        :parameter batch_size: size of the batches of coordinates to process at once
+            *NB* if batch_size is 0, the entire grid will be processed in parallel
+            if the grid is large, this may lead to out of memory errors.
+        :parameter frequency: frequency for the MetricCollector. Should be one of:
+            'every_batch'
+            'every_n_batches'
+            'every_epoch'
+            'every_n_epochs'
+            NB the train loop in inr_utils.training does not use epochs.
+        :parameter num_dims: the number of dimensions of the grid
+        """
+        if isinstance(grid, int):
+            if num_dims is None:
+                raise ValueError(
+                    f"If grid is specified as a single integer, num_dims nees to be specified to know the dimensionality of the grid. Got {grid=} but {num_dims=}.")
+            grid = num_dims * (grid,)
+        if isinstance(grid, (tuple, list)):
+            grid = make_lin_grid(0., 1., size=grid)
+        self.grid = grid
+        self.target_function = target_function
+        self._batch_size = batch_size
+        self.frequency = MetricFrequency(frequency)
+
+        if use_wandb:
+            import wandb  # weights and biases
+        self._Image = partial(PIL.Image.fromarray, mode='RGB') if not use_wandb else wandb.Image
+
+        _image_min = jnp.min(target_function.underlying_image)
+        _image_max = jnp.max(target_function.underlying_image)
+
+        @eqx.filter_jit
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
+            results = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_batch_wise(target, grid, batch_size, False)
+            return mse_loss(results, reference), results
+
+        @eqx.filter_jit
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
+            results = evaluate_on_grid_vmapped(inr, grid)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_vmapped(target, grid)
+            return mse_loss(results, reference), results
+
+        if batch_size:
+            self._evaluate_on_grid = _evaluate_by_batch
+        else:
+            self._evaluate_on_grid = _evaluate_at_once
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        data_index = kwargs.get("data_index", None)
+        if state is not None:
+            inr = handle_state(inr, state)
+        mse, resulting_image = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
+        return {'MSE_on_fixed_grid': mse, 'image_on_grid':self._Image(np.asarray(resulting_image))}
 
 
 class AudioMetricsOnGrid(Metric):
