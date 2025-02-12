@@ -339,6 +339,7 @@ class ViewReconstructor(eqx.Module):
     key: jax.Array
     ray_directions: jax.Array
     ray_origins: jax.Array
+    focal: float
 
     def __init__(self,
                  num_coarse_samples: int,

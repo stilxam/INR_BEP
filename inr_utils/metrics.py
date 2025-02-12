@@ -30,7 +30,6 @@ from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 
 
-
 class PlotOnGrid2D(Metric):
     """
     Evaluate the INR on a two dimensional grid and turn the result into an image.
@@ -442,7 +441,6 @@ class JaccardIndexSDF(Metric):
         shape = trimesh.Trimesh(vertices=vertices, faces=faces)
         pred_inside = shape.contains(self.grid_points)
 
-
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
         union = np.logical_or(pred_inside, self.target_inside)
@@ -498,7 +496,6 @@ class SDFReconstructor(Metric):
         inr = self.wrap_inr(inr)
 
         state = kwargs.get("state", None)
-
 
         sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
@@ -571,7 +568,6 @@ class JaccardAndReconstructionIndex(Metric):
 
         inr = self.wrap_inr(inr)
 
-
         sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
         # clipped_vals = np.clip(sdf_values, -0.1, 0.1)
@@ -595,7 +591,6 @@ class JaccardAndReconstructionIndex(Metric):
         ))
 
         pred_inside = sdf_values <= 0
-
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
@@ -668,24 +663,26 @@ class JaccardAndReconstructionIndex(Metric):
 #             k=faces[:, 2],
 #         ))
 #         return {"Zero Level Set": fig}
-    
-    #
-    #
-    # @staticmethod
-    # def wrap_inr(inr):
-    #     def wrapped(*args, **kwargs):
-    #         out = inr(*args, **kwargs)
-    #         if isinstance(out, tuple):
-    #             out = out[0]
-    #         out = out.squeeze()
-    #         return out
-    #
-    #     return wrapped
+
+#
+#
+# @staticmethod
+# def wrap_inr(inr):
+#     def wrapped(*args, **kwargs):
+#         out = inr(*args, **kwargs)
+#         if isinstance(out, tuple):
+#             out = out[0]
+#         out = out.squeeze()
+#         return out
+#
+#     return wrapped
 
 
 from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
 from skimage.metrics import structural_similarity as ssim
 from PIL import Image
+
+
 
 class ViewSynthesisComparison(Metric):
     """
@@ -710,7 +707,7 @@ class ViewSynthesisComparison(Metric):
     ):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
-        folder = f"./synthetic_scenes/{split}/{name}"
+        folder = f"example_data/synthetic_scenes/{split}/{name}"
         if not os.path.exists(folder):
             raise ValueError(f"Following folder does not exist: {folder}")
 
@@ -742,7 +739,6 @@ class ViewSynthesisComparison(Metric):
             image_size = example_image.size
 
 
-
         self.view_reconstructor = ViewReconstructor(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
@@ -763,6 +759,17 @@ class ViewSynthesisComparison(Metric):
         self.width = image_size[0]
         self.height = image_size[1]
         self.batch_size = batch_size
+        # self.num_coarse_samples = num_coarse_samples
+        # self.num_fine_samples = num_fine_samples
+        # self.near = near
+        # self.far = far
+        # self.noise_std = noise_std
+        # self.white_bkgd = white_bkgd
+        # self.lindisp = lindisp
+        # self.randomized = randomized
+        # self.folder = folder
+        # self.ray_origins = self.target_ray_origins
+        # self.ray_directions = self.target_ray_directions
 
     def compute(self, **kwargs) -> dict:
         """
@@ -772,7 +779,9 @@ class ViewSynthesisComparison(Metric):
         inr = self.wrap_inr(inr)
 
         # Render the image
-        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr, self.target_ray_directions, self.target_ray_origins)
+        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr,
+                                                                                                  self.target_ray_directions,
+                                                                                                  self.target_ray_origins)
         # Compute the mean squared error
         mses = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
         psnrs = jax.vmap(self.peak_signal_to_noise_ratio)(rendered_images, self.target_images)
@@ -780,9 +789,12 @@ class ViewSynthesisComparison(Metric):
 
         # if ssim is not vmappable, we can use the following line instead
         # ssims = [self.structured_similarity_index(target_image, rendered_image) for target_image, rendered_image in zip(self.target_images, rendered_images)]
+        mmse = jnp.mean(mses)
+        mpsnr = jnp.mean(psnrs)
+        mssim = jnp.mean(ssims)
 
-        return {'mse': mses, 'psnr': psnrs, 'ssim': ssims}
 
+        return {'mse': mmse, 'psnr': mpsnr, 'ssim': mssim}
 
     @staticmethod
     def mean_squared_error(x: jax.Array, y: jax.Array) -> jax.Array:
@@ -798,7 +810,6 @@ class ViewSynthesisComparison(Metric):
         """Compute the Structural Similarity Index (SSIM) between two images."""
         return ssim(x, y)
 
-
     @staticmethod
     def wrap_inr(inr):
         def wrapped(*args, **kwargs):
@@ -809,5 +820,3 @@ class ViewSynthesisComparison(Metric):
             return out
 
         return wrapped
-
-
