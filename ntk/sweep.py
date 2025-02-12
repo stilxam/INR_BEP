@@ -57,7 +57,7 @@ def main_sweep() -> None:
     wandb.log({
         "layer_type": layer_type,
         "activation_kwargs": activation_kwargs,
-        "ntk_condition_number": float(condition_number),
+        "ntk_condition_number": jnp.log(condition_number+1e-5),
         "eigvals": eigvals,
         "ntk_plot": wandb.Image(ntk_fig),
         "lin_measure": float(lin_measure),

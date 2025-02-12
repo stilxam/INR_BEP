@@ -25,6 +25,8 @@ def make_init_apply(config: Config, key_gen: Generator) -> Tuple[Callable, Calla
     def apply_fn(_params: Any, x: jnp.ndarray) -> jnp.ndarray:
         model = eqx.combine(_params, static)
         return model(x)
+        # return jax.grad(lambda loc: model(loc).squeeze())(x)
+
 
     return init_fn, jax.vmap(apply_fn, (None, 0))
 

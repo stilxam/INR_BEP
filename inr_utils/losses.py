@@ -70,10 +70,10 @@ def sdf_loss(gt_normals, y, y_pred, y_grad) -> jax.Array:
     gradient_constraint = jnp.abs(jnp.linalg.norm(y_grad) - 1)
 
     loss_array = jnp.array([
-        jnp.abs(jnp.mean(sdf_constraint)) * 3e3,
-        jnp.mean(inter_constraint) * 3e3,
-        jnp.mean(normal_constraint) * 1e2,
-        jnp.mean(gradient_constraint) * 5e1
+        jnp.abs(jnp.mean(sdf_constraint)) * 3000,
+        jnp.mean(inter_constraint) * 3000,
+        jnp.mean(normal_constraint) * 100,
+        jnp.mean(gradient_constraint) * 50
     ])
     return jnp.sum(loss_array)
 

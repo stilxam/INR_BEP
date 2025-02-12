@@ -104,7 +104,7 @@ def get_sweep_configuration() -> Dict[str, Any]:
                 ]
             },
             "w0": {"values":
-                       [i for i in range(1, 51)]
+                       [i for i in range(1, 51, 2)]
                    },
         },
     }

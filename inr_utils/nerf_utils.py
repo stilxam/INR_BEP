@@ -323,23 +323,30 @@ class ViewReconstructor(eqx.Module):
     """
     Reconstruct an image from a NeRF model.
     """
+
+
     renderer: Renderer
-    num_coarse_samples: int
-    num_fine_samples: int
-    near: float
-    far: float
-    noise_std: Optional[float]
-    white_bkgd: bool
-    lindisp: bool
-    randomized: bool
     height: int
     width: int
-    folder: str
-    batch_size: int
-    key: jax.Array
-    ray_directions: jax.Array
-    ray_origins: jax.Array
     focal: float
+    key: jax.Array
+
+    # num_coarse_samples: int
+    # num_fine_samples: int
+    # near: float
+    # far: float
+    # noise_std: Optional[float]
+    # white_bkgd: bool
+    # lindisp: bool
+    # randomized: bool
+    # height: int
+    # width: int
+    # folder: str
+    # batch_size: int
+    # key: jax.Array
+    # ray_directions: jax.Array
+    # ray_origins: jax.Array
+    # focal: float
 
     def __init__(self,
                  num_coarse_samples: int,
