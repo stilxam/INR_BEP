@@ -380,6 +380,7 @@ class ViewReconstructor(eqx.Module):
             randomized=randomized
         )
 
+
     def __call__(self, nerf: NeRF, ray_directions, ray_origins, state: Optional[eqx.nn.State] = None):
         """
         Render the image and depth map from a NeRF model.
@@ -390,8 +391,8 @@ class ViewReconstructor(eqx.Module):
         :return: rendered_image, depth_map, both as jnp.ndarray(float32), [height, width, 3] and [height, width] respectively
         """
         # Flatten rays and repeat origins for each pixel
-        ray_origins_flat = jnp.tile(self.ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
-        ray_directions_flat = self.ray_directions.reshape(-1, 3)  # [H*W, 3]
+        ray_origins_flat = jnp.tile(ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
+        ray_directions_flat = ray_directions.reshape(-1, 3)  # [H*W, 3]
 
         # Generate random keys for each pixel
         keys = jax.random.split(self.key, self.height * self.width)
