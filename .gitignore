@@ -21,6 +21,11 @@ example_data/*.xyz
 /DIV2k_entropy_bottom_5p/
 /DIV2k_entropy_top_5p/
 /GTZAN/
+/GTZAN_entropy_5p_25p/
+/GTZAN_entropy_25p_75p/
+/GTZAN_entropy_75p_95p/
+/GTZAN_entropy_bottom_5p/
+/GTZAN_entropy_top_5p/
 /results
 /synthetic_scenes
 .vscode
@@ -36,4 +41,5 @@ synthetic_scenes.zip
 
 /reconstructed_audio.wav
 /results
-/slurm_output
+/factory_slurm
+/factory_configs

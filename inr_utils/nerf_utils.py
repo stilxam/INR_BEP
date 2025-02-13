@@ -323,22 +323,30 @@ class ViewReconstructor(eqx.Module):
     """
     Reconstruct an image from a NeRF model.
     """
+
+
     renderer: Renderer
-    num_coarse_samples: int
-    num_fine_samples: int
-    near: float
-    far: float
-    noise_std: Optional[float]
-    white_bkgd: bool
-    lindisp: bool
-    randomized: bool
     height: int
     width: int
-    folder: str
-    batch_size: int
+    focal: float
     key: jax.Array
-    ray_directions: jax.Array
-    ray_origins: jax.Array
+
+    # num_coarse_samples: int
+    # num_fine_samples: int
+    # near: float
+    # far: float
+    # noise_std: Optional[float]
+    # white_bkgd: bool
+    # lindisp: bool
+    # randomized: bool
+    # height: int
+    # width: int
+    # folder: str
+    # batch_size: int
+    # key: jax.Array
+    # ray_directions: jax.Array
+    # ray_origins: jax.Array
+    # focal: float
 
     def __init__(self,
                  num_coarse_samples: int,
@@ -372,6 +380,7 @@ class ViewReconstructor(eqx.Module):
             randomized=randomized
         )
 
+
     def __call__(self, nerf: NeRF, ray_directions, ray_origins, state: Optional[eqx.nn.State] = None):
         """
         Render the image and depth map from a NeRF model.
@@ -382,8 +391,8 @@ class ViewReconstructor(eqx.Module):
         :return: rendered_image, depth_map, both as jnp.ndarray(float32), [height, width, 3] and [height, width] respectively
         """
         # Flatten rays and repeat origins for each pixel
-        ray_origins_flat = jnp.tile(self.ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
-        ray_directions_flat = self.ray_directions.reshape(-1, 3)  # [H*W, 3]
+        ray_origins_flat = jnp.tile(ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
+        ray_directions_flat = ray_directions.reshape(-1, 3)  # [H*W, 3]
 
         # Generate random keys for each pixel
         keys = jax.random.split(self.key, self.height * self.width)
@@ -562,9 +571,10 @@ class SyntheticScenesDataLoader:
             return ray_origins, ray_directions, return_key, ground_truth_pixel_values
 
     def __init__(self, split: str, name: str, batch_size: int, poses_per_batch: int,
-                 base_path: str = "./synthetic_scenes", size_limit: int = -1, *, key: jax.Array):
+                 base_path: str = "example_data/synthetic_scenes", size_limit: int = -1, *, key: jax.Array):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
+
 
         folder = f"{base_path}/{split}/{name}"
         if not os.path.exists(folder):

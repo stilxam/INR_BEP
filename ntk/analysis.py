@@ -1,3 +1,4 @@
+import scipy
 from typing import Callable, Dict, Tuple
 
 import jax
@@ -6,20 +7,38 @@ import neural_tangents as nt
 from jax import jit
 
 
+
 def get_NTK_ntvp(apply_fn: Callable) -> Callable:
     """Get NTK computation function."""
+
+    # apply_fn = jax.grad(apply_fn)
     kwargs = dict(f=apply_fn, trace_axes=(), vmap_axes=0)
     return jit(
         nt.empirical_ntk_fn(
             **kwargs, implementation=nt.NtkImplementation.NTK_VECTOR_PRODUCTS
+            # **kwargs, implementation=nt.NtkImplementation.JACOBIAN_CONTRACTION
+            # **kwargs, implementation=nt.NtkImplementation.STRUCTURED_DERIVATIVES
         )
     )
 
 def decompose_ntk(ntk: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, float]:
     """Decompose NTK into eigenvalues and eigenvectors."""
-    eigvals, eigvecs = jnp.linalg.eigh(ntk)
+    # eigvals, eigvecs = jnp.linalg.eigh(ntk)
+
+    eigvals, eigvecs = scipy.sparse.linalg.eigsh(jax.device_get(ntk), k=ntk.shape[0]-1)
+
     rescaled_eigvals = jnp.flipud(eigvals) / jnp.min(jnp.abs(eigvals))
-    condition_number = jnp.linalg.cond(ntk)
+    # condition_number = jnp.linalg.cond(ntk)
+    condition_number = eigvals.max() / jnp.abs(eigvals.min())
+    # assert jnp.all(jnp.isfinite(eigvals))
+    # assert not jnp.any(jnp.isnan(eigvecs))
+    # if jnp.any(jnp.isnan(eigvecs)):
+    #     eigvecs = jnp.zeros_like(eigvecs)
+    # if not jnp.all(jnp.isfinite(eigvals)):
+    #     eigvals = jnp.zeros_like(eigvals)
+    #     condition_number = -1
+
+
     return jnp.flipud(eigvals), jnp.flipud(eigvecs.T), rescaled_eigvals, condition_number
 
 
@@ -52,61 +71,11 @@ def analyze_fft_spectrum(magnitude_spectrum: jnp.ndarray) -> Dict[str, float]:
     }
 
 
-# @jax.jit
-# def measure_diagonal_strength(ntk: jnp.ndarray) -> float:
-#     size = ntk.shape[0] # ntk is nxn simmetric
-#     r = jnp.arange(size)+1 # also invert r
-#     r_sq = jnp.square(r) # 1/flipup(r^2)
-#
-#     n = jnp.sum(ntk) # maybe sum of squared
-#     s_xy = jnp.sum(r@ntk@r.T)
-#     s_x = jnp.sum(r@ntk)
-#     s_xx = jnp.sum(r_sq@ntk)
-#     s_y = jnp.sum(r@ntk.T)
-#     s_yy = jnp.sum(r_sq@ntk.T)
-#
-#     numerator = n*s_xy - s_x*s_y
-#     denominator = jnp.sqrt(n*s_xx - jnp.square(s_x)) * jnp.sqrt(n*s_yy - jnp.square(s_y))
-#     correlation_coefficient = numerator / denominator
-#     return correlation_coefficient
-
-#
-# @jax.jit
-# def bis_measure_diagonal_strength(ntk: jnp.ndarray) -> float:
-#     size = ntk.shape[0] # ntk is nxn simmetric
-#     r = 1/ jnp.flipud(jnp.arange(size)+1) # also invert r
-#     r_sq = jnp.square(r) # 1/flipup(r^2)
-#
-#     n = jnp.sum(ntk) # maybe sum of squared
-#     s_xy = jnp.sum(r@ntk@r.T)
-#     s_x = jnp.sum(r@ntk)
-#     s_xx = jnp.sum(r_sq@ntk)
-#     s_y = jnp.sum(r@ntk.T)
-#     s_yy = jnp.sum(r_sq@ntk.T)
-#
-#     numerator = n*s_xy - s_x*s_y
-#     denominator = jnp.sqrt(n*s_xx - jnp.square(s_x)) * jnp.sqrt(n*s_yy - jnp.square(s_y))
-#     correlation_coefficient = numerator / denominator
-#     return correlation_coefficient
 
 
 def make_map(k):
     idx = jnp.arange(k)+1
-    return (jnp.abs(idx - idx[:, None]))
-
-# [0, 1, 2]
-# [1, 0, 1]
-# [2, 1, 0] 
-
-
-
-
-def symmetry_one(k):
-    k = k/jnp.max(k)
-    weights = make_map(k.shape[0])
-    weighted_k = jnp.multiply(k, weights)
-    return jnp.linalg.norm(jnp.diag(weighted_k)) * jnp.mean(jnp.diag(k))/jnp.linalg.norm(weighted_k)
-
+    return jnp.abs(idx - idx[:, None])
 
 
 def measure_of_diagonal_strength(ntk: jax.Array, map_kwarg:int =0, exp_scale:float =1.0):

@@ -25,11 +25,10 @@ import trimesh
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
-    make_lin_grid, make_gif
+    make_lin_grid, make_gif, ContinuousImage
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
 from pathlib import Path
-
 
 class PlotOnGrid2D(Metric):
     """
@@ -258,6 +257,104 @@ class MSEOnFixedGrid(Metric):
             inr = handle_state(inr, state)
         mse = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
         return {'MSE_on_fixed_grid': mse}
+    
+class ImageGradMetrics(Metric):
+    """ 
+    Evaluate the INR and the target function on a fixed grid and return the shifted mean squared error between the two
+    and show the actual image
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            target_function: ContinuousImage,
+            grid: Union[jax.Array, int, list[int]],
+            batch_size: int,
+            frequency: str,
+            num_dims: Union[int, None] = None,
+            use_wandb: bool = True,
+    ):
+        """ 
+        :parameter target_function: the target function to compare the INR to
+        :parameter grid: grid on which to evaluate the inr
+            if this is an integer i, an i times i times... times i grid will be created 
+                (so of shape (i, ..., i, num_dims) with num_dims axes of size i).
+            if this is a tuple of integers (i_0, ..., i_{n-1}), a linear grid with shape (i_0, ..., i_{n-1}, n) will be created
+            if this is a jax.Array, this array will be used as the grid 
+                (should be of shape (grid_dimensions..., num_channels) where the inr takes num_channels inputs)
+        :parameter batch_size: size of the batches of coordinates to process at once
+            *NB* if batch_size is 0, the entire grid will be processed in parallel
+            if the grid is large, this may lead to out of memory errors.
+        :parameter frequency: frequency for the MetricCollector. Should be one of:
+            'every_batch'
+            'every_n_batches'
+            'every_epoch'
+            'every_n_epochs'
+            NB the train loop in inr_utils.training does not use epochs.
+        :parameter num_dims: the number of dimensions of the grid
+        """
+        if isinstance(grid, int):
+            if num_dims is None:
+                raise ValueError(
+                    f"If grid is specified as a single integer, num_dims nees to be specified to know the dimensionality of the grid. Got {grid=} but {num_dims=}.")
+            grid = num_dims * (grid,)
+        if isinstance(grid, (tuple, list)):
+            grid = make_lin_grid(0., 1., size=grid)
+        self.grid = grid
+        self.target_function = target_function
+        self._batch_size = batch_size
+        self.frequency = MetricFrequency(frequency)
+
+        if use_wandb:
+            import wandb  # weights and biases
+        self._Image = partial(PIL.Image.fromarray, mode='RGB') if not use_wandb else wandb.Image
+
+        _image_min = jnp.min(target_function.underlying_image)
+        _image_max = jnp.max(target_function.underlying_image)
+
+        @eqx.filter_jit
+        def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
+            results = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_batch_wise(target, grid, batch_size, False)
+            return mse_loss(results, reference), results
+
+        @eqx.filter_jit
+        def _evaluate_at_once(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
+            results = evaluate_on_grid_vmapped(inr, grid)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
+            if data_index is not None:
+                target = partial(target_function, data_index=data_index)
+            else:
+                target = target_function
+            reference = evaluate_on_grid_vmapped(target, grid)
+            return mse_loss(results, reference), results
+
+        if batch_size:
+            self._evaluate_on_grid = _evaluate_by_batch
+        else:
+            self._evaluate_on_grid = _evaluate_at_once
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        state = kwargs.get("state", None)
+        data_index = kwargs.get("data_index", None)
+        if state is not None:
+            inr = handle_state(inr, state)
+        mse, resulting_image = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
+        return {'MSE_on_fixed_grid': mse, 'image_on_grid':self._Image(np.asarray(resulting_image))}
 
 
 
@@ -499,12 +596,10 @@ class JaccardIndexSDF(Metric):
         # Convert to occupancy grids (inside = True, outside = False)
         sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
 
-        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+        vertices, faces, normals, values = skimage.measure.marching_cubes(np.array(sdf_reshaped), level=0.0)
 
         shape = trimesh.Trimesh(vertices=vertices, faces=faces)
         pred_inside = shape.contains(self.grid_points)
-
-        # pred_inside = pred_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
@@ -539,10 +634,20 @@ class SDFReconstructor(Metric):
     def __init__(self,
                  grid_resolution: int,
                  batch_size: int,
-                 frequency: str = 'every_n_batches'
+                 frequency: str = 'every_n_batches',
+                 num_dims: int = 3,
                  ):
+
+        if isinstance(grid_resolution, int):
+            grid_resolution = (grid_resolution,) * num_dims
+
+            # Create evaluation grid
+        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
+        grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
+        self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
+
         self.frequency = MetricFrequency(frequency)
-        self.resolution = grid_resolution
         self.batch_size = batch_size
 
     # def __call__(self, *args, **kwargs) -> dict:
@@ -552,68 +657,11 @@ class SDFReconstructor(Metric):
 
         state = kwargs.get("state", None)
 
-        grid = make_lin_grid(-1, 1, self.resolution, 3)
-        grid = grid.reshape((-1, 3))
+        sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
-        # sdf_values = jax.vmap(inr)(grid)
-        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
-        # batched_grid = grid.reshape((-1, self.batch_size, 3))
-        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
-        # sdf_values = batched_sdf_values.reshape((-1, 1))
-        fig = go.Figure(data=go.Isosurface(
-            x=grid[:, 0],
-            y=grid[:, 1],
-            z=grid[:, 2],
-            value=sdf_values,
-            isomin=-0.1,
-            isomax=0.1,
-            surface_count=1,
-            caps=dict(x_show=False, y_show=False, z_show=False)
-        ))
-        return {"Zero Level Set": fig}
-
-    @staticmethod
-    def wrap_inr(inr):
-        def wrapped(*args, **kwargs):
-            out = inr(*args, **kwargs)
-            if isinstance(out, tuple):
-                out = out[0]
-            out = out.squeeze()
-            return out
-
-        return wrapped
-
-
-class MarchingCube(Metric):
-    """
-    Reconstructs the SDF of a mesh from an INR
-    """
-    required_kwargs = set({'inr'})
-
-    def __init__(self,
-                 resolution: int = 100,
-                 batch_size: int = 1024
-                 ):
-        self.frequency = MetricFrequency('every_n_batches')  # Default frequency
-        self.resolution = resolution
-        self.batch_size = batch_size
-
-    # def __call__(self, *args, **kwargs) -> dict:
-    def compute(self, **kwargs) -> dict:
-        inr = kwargs['inr']
-        inr = self.wrap_inr(inr)
-
-        state = kwargs.get("state", None)
-
-        grid = make_lin_grid(-1, 1, self.resolution, 3)
-        grid = grid.reshape((-1, 3))
-
-        # sdf_values = jax.vmap(inr)(grid)
-        sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
-        # batched_grid = grid.reshape((-1, self.batch_size, 3))
-        # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
-        sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
-        vertices, faces, normals, values = skimage.measure.marching_cubes(sdf_reshaped, level=0.0)
+        vertices, faces, normals, values = skimage.measure.marching_cubes(
+            np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
+            level=0.0)
 
         fig = go.Figure(go.Mesh3d(
             x=vertices[:, 0],
@@ -624,8 +672,6 @@ class MarchingCube(Metric):
             k=faces[:, 2],
         ))
         return {"Zero Level Set": fig}
-    
-
 
     @staticmethod
     def wrap_inr(inr):
@@ -639,8 +685,173 @@ class MarchingCube(Metric):
         return wrapped
 
 
+class JaccardAndReconstructionIndex(Metric):
+    """
+    Compute the Jaccard index (Intersection over Union) between the SDF of the INR and the SDF of the target function,
+    and reconstruct the SDF of the INR as a 3D mesh.
+    """
+    required_kwargs = set({'inr'})
+
+    def __init__(
+            self,
+            target_function: eqx.Module,
+            grid_resolution: Union[int, tuple[int, ...]],
+            batch_size: int,
+            num_dims: int = 3,  # Default to 3D for SDFs
+            frequency: str = 'every_n_batches'
+    ):
+        """
+        Args:
+            target_function: The target SDF function to compare against
+            grid_resolution: Resolution of evaluation grid. Either single int for uniform resolution
+                           or tuple specifying resolution per dimension
+            num_dims: Number of dimensions (defaults to 3 for SDFs)
+        """
+        self.frequency = MetricFrequency(frequency)
+
+        # Handle grid resolution specification
+        if isinstance(grid_resolution, int):
+            grid_resolution = (grid_resolution,) * num_dims
+
+        # Create evaluation grid
+        grid_arrays = [np.linspace(-2, 2, res) for res in grid_resolution]
+        grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
+        self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
+        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
+
+        self.target_inside = target_function(self.grid_points)
+        self.batch_size = batch_size
+
+    def compute(self, **kwargs):
+        inr = kwargs['inr']
+        state = kwargs.get("state", None)
+
+        inr = self.wrap_inr(inr)
+
+        sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
+
+        # clipped_vals = np.clip(sdf_values, -0.1, 0.1)
+
+        vertices, faces, normals, values = skimage.measure.marching_cubes(
+            np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
+            level=0.0)
+
+        # shape = trimesh.Trimesh(vertices=vertices, faces=faces)
+        # pred_inside = shape.contains(self.grid_points)
+
+        # fig = go.Figure(data=go.Isosurface(
+        #     x=self.grid_points[:, 0],
+        #     y=self.grid_points[:, 1],
+        #     z=self.grid_points[:, 2],
+        #     value=sdf_values,
+        #     isomin=-0.1,
+        #     isomax=0.1,
+        #     surface_count=1,
+        #     caps=dict(x_show=False, y_show=False, z_show=False)
+        # ))
+
+        fig = go.Figure(go.Mesh3d(
+            x=vertices[:, 0],
+            y=vertices[:, 1],
+            z=vertices[:, 2],
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+        ))
+
+        pred_inside = sdf_values <= 0
+
+        # Compute intersection and union
+        intersection = np.logical_and(pred_inside, self.target_inside)
+        union = np.logical_or(pred_inside, self.target_inside)
+
+        # Calculate Jaccard index
+        intersection_sum = np.sum(intersection)
+        union_sum = np.sum(union)
+
+        jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
+
+        return {
+            'jaccard_index': float(jaccard),
+            "Zero Level Set": fig
+        }
+
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
+
+# class MarchingCube(Metric):
+#     """
+#     Reconstructs the SDF of a mesh from an INR
+#     """
+#     required_kwargs = set({'inr'})
+#
+#     def __init__(self,
+#                  resolution: int = 100,
+#                  batch_size: int = 1024,
+#                  frequency: str = 'every_n_batches',
+#                  ):
+#         self.frequency = MetricFrequency(frequency)  # Default frequency
+#         self.resolution = resolution
+#         self.batch_size = batch_size
+#
+#     # def __call__(self, *args, **kwargs) -> dict:
+#     def compute(self, **kwargs) -> dict:
+#         inr = kwargs['inr']
+#         inr = self.wrap_inr(inr)
+#
+#         state = kwargs.get("state", None)
+#
+#         grid = make_lin_grid(-1, 1, self.resolution, 3)
+#         grid = grid.reshape((-1, 3))
+#
+#         # sdf_values = jax.vmap(inr)(grid)
+#
+#         sdf_values = evaluate_on_grid_batch_wise(inr, grid, batch_size=self.batch_size, apply_jit=False)
+#         # batched_grid = grid.reshape((-1, self.batch_size, 3))
+#         # batched_sdf_values = jax.vmap(self.inr, in_axes=0)(batched_grid)
+#         sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
+#
+#         vertices, faces, normals, values = skimage.measure.marching_cubes(np.array(sdf_reshaped), level=0.0)
+#
+#
+#         fig = go.Figure(go.Mesh3d(
+#             x=vertices[:, 0],
+#             y=vertices[:, 1],
+#             z=vertices[:, 2],
+#             i=faces[:, 0],
+#             j=faces[:, 1],
+#             k=faces[:, 2],
+#         ))
+#         return {"Zero Level Set": fig}
+
+#
+#
+# @staticmethod
+# def wrap_inr(inr):
+#     def wrapped(*args, **kwargs):
+#         out = inr(*args, **kwargs)
+#         if isinstance(out, tuple):
+#             out = out[0]
+#         out = out.squeeze()
+#         return out
+#
+#     return wrapped
+
+
 from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
 from skimage.metrics import structural_similarity as ssim
+from PIL import Image
+
+
 
 class ViewSynthesisComparison(Metric):
     """
@@ -652,8 +863,6 @@ class ViewSynthesisComparison(Metric):
             self,
             split: str,
             name: str,
-            width: int,
-            height: int,
             batch_size: int,
             frequency: str,
             num_coarse_samples: int,
@@ -667,7 +876,7 @@ class ViewSynthesisComparison(Metric):
     ):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
-        folder = f"./synthetic_scenes/{split}/{name}"
+        folder = f"example_data/synthetic_scenes/{split}/{name}"
         if not os.path.exists(folder):
             raise ValueError(f"Following folder does not exist: {folder}")
 
@@ -676,10 +885,10 @@ class ViewSynthesisComparison(Metric):
             target_path = f"{folder}/pre_processed.npz"
             if os.path.exists(target_path):
                 pre_processed = np.load(target_path)
-                self.target_images = jnp.asarray(pre_processed['images'][:])
-                self.target_poses = jnp.asarray(pre_processed['poses'][:])
-                self.target_ray_origins = jnp.asarray(pre_processed['ray_origins'][:])
-                self.target_ray_directions = jnp.asarray(pre_processed['ray_directions'][:])
+                self.target_images = jnp.asarray(pre_processed['images'][:])  # (num_images, height, width, 3)
+                self.target_poses = jnp.asarray(pre_processed['poses'][:])  # (num_images, 4, 4)
+                self.target_ray_origins = jnp.asarray(pre_processed['ray_origins'][:])  # (num_images, 3)
+                self.target_ray_directions = jnp.asarray(pre_processed['ray_directions'][:])  # (num_images, height* width, 3)
             else:  # otherwise, create said npz file
                 print(f"creating npz archive for {split}, {name}.")
                 images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
@@ -691,6 +900,14 @@ class ViewSynthesisComparison(Metric):
                          ray_directions=ray_directions)
                 print(f"    finished creating {target_path}")
 
+        file_base_names = [
+            file_name.removesuffix('.png')
+            for file_name in os.listdir(f"{folder}/rgb")
+        ]
+        with Image.open(f"{folder}/rgb/{file_base_names[0]}.png") as example_image:
+            image_size = example_image.size
+
+
         self.view_reconstructor = ViewReconstructor(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
@@ -700,17 +917,28 @@ class ViewSynthesisComparison(Metric):
             white_bkgd=white_bkgd,
             lindisp=lindisp,
             randomized=randomized,
-            height=height,
-            width=width,
+            height=image_size[0],
+            width=image_size[1],
             folder=folder,
             key=jax.random.PRNGKey(0)
         )
 
 
         self.frequency = MetricFrequency(frequency)
-        self.width = width
-        self.height = height
+        self.width = image_size[0]
+        self.height = image_size[1]
         self.batch_size = batch_size
+        # self.num_coarse_samples = num_coarse_samples
+        # self.num_fine_samples = num_fine_samples
+        # self.near = near
+        # self.far = far
+        # self.noise_std = noise_std
+        # self.white_bkgd = white_bkgd
+        # self.lindisp = lindisp
+        # self.randomized = randomized
+        # self.folder = folder
+        # self.ray_origins = self.target_ray_origins
+        # self.ray_directions = self.target_ray_directions
 
     def compute(self, **kwargs) -> dict:
         """
@@ -718,9 +946,42 @@ class ViewSynthesisComparison(Metric):
         """
         inr = kwargs['inr']
         inr = self.wrap_inr(inr)
+        state = kwargs.get("state", None)
 
         # Render the image
-        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr, self.target_ray_directions, self.target_ray_origins)
+
+        # self.target_images  (num_images, height, width, 3)
+        # self.target_ray_origins  (num_images, 3)
+        # self.target_ray_directions (num_images, height, width, 3)
+
+        for i in range(self.target_images.shape[0]):
+            rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
+                                                                                                      self.target_ray_directions[i],
+                                                                                                      self.target_ray_origins[i],
+                                                                                                      state
+                                                                                                      )
+
+
+
+            # mses = self.mean_squared_error(rendered_images, self.target_images[i])
+            # psnrs = self.peak_signal_to_noise_ratio(rendered_images, self.target_images[i])
+            # ssims = self.structured_similarity_index(rendered_images, self.target_images[i])
+
+            mmse = jnp.mean(mses)
+            mpsnr = jnp.mean(psnrs)
+            mssim = jnp.mean(ssims)
+
+        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
+                                                                                                  self.target_ray_directions,
+                                                                                                  self.target_ray_origins,
+                                                                                                  state
+                                                                                                  )
+
+
+
+
+        # sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
+
         # Compute the mean squared error
         mses = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
         psnrs = jax.vmap(self.peak_signal_to_noise_ratio)(rendered_images, self.target_images)
@@ -728,9 +989,12 @@ class ViewSynthesisComparison(Metric):
 
         # if ssim is not vmappable, we can use the following line instead
         # ssims = [self.structured_similarity_index(target_image, rendered_image) for target_image, rendered_image in zip(self.target_images, rendered_images)]
+        mmse = jnp.mean(mses)
+        mpsnr = jnp.mean(psnrs)
+        mssim = jnp.mean(ssims)
 
-        return {'mse': mses, 'psnr': psnrs, 'ssim': ssims}
 
+        return {'mse': mmse, 'psnr': mpsnr, 'ssim': mssim}
 
     @staticmethod
     def mean_squared_error(x: jax.Array, y: jax.Array) -> jax.Array:
@@ -746,7 +1010,6 @@ class ViewSynthesisComparison(Metric):
         """Compute the Structural Similarity Index (SSIM) between two images."""
         return ssim(x, y)
 
-
     @staticmethod
     def wrap_inr(inr):
         def wrapped(*args, **kwargs):
@@ -757,5 +1020,3 @@ class ViewSynthesisComparison(Metric):
             return out
 
         return wrapped
-
-
