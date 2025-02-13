@@ -37,6 +37,6 @@ wandb login "$wandblogin"
 #Initializing scale factor experiments: 
 
 echo 'Starting scale factor experiments!';
-# python run_parallel.py --config=./configs/InitialScheme/example_siren.yaml
-# python run_parallel.py --config=./configs/InitialScheme/finer_scheme.yaml
-# python run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml
+python run_parallel.py --config=./configs/InitialScheme/example_siren.yaml
+python run_parallel.py --config=./configs/InitialScheme/finer_scheme.yaml
+python run_parallel.py --config=./configs/InitialScheme/standard_scheme.yaml

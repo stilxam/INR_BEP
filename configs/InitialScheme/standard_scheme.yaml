@@ -17,7 +17,7 @@ model_config:
   layer_type: inr_layers.GaussianINRLayer
   num_splits: 1
   initialization_scheme: initialization_schemes.standard_scheme
-  activation_kwargs: {inverse_scale: 2.0}
+  activation_kwargs: {inverse_scale: 10.0}
   # initialization_scheme_kwargs: {}  # standard scheme doesn't need additional parameters
    # standard linear layer doesn't need activation parameters
   # state_update_function: ('state_test_objects.py', 'counter_updater')
