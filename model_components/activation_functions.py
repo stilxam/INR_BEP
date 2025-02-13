@@ -50,13 +50,13 @@ def real_gabor_wavelet(x: tuple[jax.Array, jax.Array], s0: Union[float, jax.Arra
         scale = s0 * x[0]
     return jnp.cos(omega) * jnp.exp(-jnp.square(scale))
 
-
+#
 # def complex_gabor_wavelet(x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):
 #     """
 #     Implements the WIRE activation function
 #     that is \sigma(x) = exp(j w_0 x)* exp(-|s_0 x|^2)
 #     from https://arxiv.org/pdf/2301.05187
-
+#
 #     :parameter x: a bunch of `jax.Array`s to be fed to this activation function
 #         var positional
 #     :parameter s0: inverse scale used in the radial part of the wavelet (s_0 in the paper)
@@ -80,11 +80,17 @@ def complex_gabor_wavelet(*x: jax.Array, s0:Union[float, jax.Array], w0: Union[f
     """
     # Frequency modulation ( w0 applies only to the first coordinate)
     freq = jnp.exp(1j * w0 * x[0])
+
     # Radial part: Gaussian envelope
     x = jnp.stack(x, axis=0)
+
     squared_abs = jnp.mean(jnp.square(jnp.abs(x)), axis=0)  # mean instead of sum so that we don't have to change the initialization scheme
     gaussian_envelope = jnp.exp(-jnp.square(s0)*squared_abs)
     return freq * gaussian_envelope
+
+
+# def complex_gabor_wavelet(*x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]) -> jax.Array:
+#     return jnp.exp(1j*w0*x)*jnp.exp(-jnp.square(s0)*jnp.square(jnp.abs(x)))
 
 
 # def two_d_complex_gabor_wavelet(*x: jax.Array, s0: Union[float, jax.Array], w0: Union[float, jax.Array]):  # same results as complex_gabor_wavelet for 2d

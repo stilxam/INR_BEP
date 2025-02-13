@@ -48,7 +48,7 @@ def get_config(layer_type: str, activation_kwargs: Dict[str, float]) -> Config:
             "inr_modules.MLPINR.from_config",
             {
                 "hidden_size": 1028,
-                "num_layers": 5,
+                "num_layers": 3,
                 "layer_type": layer_type,
                 "num_splits": 1,
                 "activation_kwargs": activation_kwargs,
@@ -66,7 +66,7 @@ def get_config(layer_type: str, activation_kwargs: Dict[str, float]) -> Config:
                 "inr_modules.MLPINR.from_config",
                 {
                     "hidden_size": 1028,
-                    "num_layers": 5,
+                    "num_layers": 3,
                     "layer_type": layer_type,
                     "num_splits": 1,
                     "activation_kwargs": activation_kwargs,
@@ -121,17 +121,17 @@ def get_2d_sweep_configuration() -> Dict[str, Any]:
             "layer_type": {
                 "values": [
                     "inr_layers.ComplexWIRE",
-                    "inr_layers.RealWIRE",
-                    "inr_layers.SuperGaussianLayer",
+                    # "inr_layers.RealWIRE",
+                    # "inr_layers.SuperGaussianLayer",
                 ]
             },
             "w0": {
                 "values":
-                    [i for i in range(1, 51)]
+                    [i for i in range(1, 51, 2)]
             },
             "s0": {
                 "values":
-                    [i for i in range(1, 51)]
+                    [i for i in range(1, 51, 2)]
             },
         },
     }

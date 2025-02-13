@@ -652,7 +652,7 @@ class JaccardAndReconstructionIndex(Metric):
             grid_resolution = (grid_resolution,) * num_dims
 
         # Create evaluation grid
-        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
+        grid_arrays = [np.linspace(-2, 2, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
         self.resolution = grid_resolution[0]  # Assume uniform resolution for now
@@ -670,22 +670,31 @@ class JaccardAndReconstructionIndex(Metric):
 
         # clipped_vals = np.clip(sdf_values, -0.1, 0.1)
 
-        # vertices, faces, normals, values = skimage.measure.marching_cubes(
-        #     np.array(clipped_vals.reshape(self.resolution, self.resolution, self.resolution)),
-        #     level=0.0)
+        vertices, faces, normals, values = skimage.measure.marching_cubes(
+            np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
+            level=0.0)
 
         # shape = trimesh.Trimesh(vertices=vertices, faces=faces)
         # pred_inside = shape.contains(self.grid_points)
 
-        fig = go.Figure(data=go.Isosurface(
-            x=self.grid_points[:, 0],
-            y=self.grid_points[:, 1],
-            z=self.grid_points[:, 2],
-            value=sdf_values,
-            isomin=-0.1,
-            isomax=0.1,
-            surface_count=1,
-            caps=dict(x_show=False, y_show=False, z_show=False)
+        # fig = go.Figure(data=go.Isosurface(
+        #     x=self.grid_points[:, 0],
+        #     y=self.grid_points[:, 1],
+        #     z=self.grid_points[:, 2],
+        #     value=sdf_values,
+        #     isomin=-0.1,
+        #     isomax=0.1,
+        #     surface_count=1,
+        #     caps=dict(x_show=False, y_show=False, z_show=False)
+        # ))
+
+        fig = go.Figure(go.Mesh3d(
+            x=vertices[:, 0],
+            y=vertices[:, 1],
+            z=vertices[:, 2],
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
         ))
 
         pred_inside = sdf_values <= 0
@@ -814,10 +823,10 @@ class ViewSynthesisComparison(Metric):
             target_path = f"{folder}/pre_processed.npz"
             if os.path.exists(target_path):
                 pre_processed = np.load(target_path)
-                self.target_images = jnp.asarray(pre_processed['images'][:])
-                self.target_poses = jnp.asarray(pre_processed['poses'][:])
-                self.target_ray_origins = jnp.asarray(pre_processed['ray_origins'][:])
-                self.target_ray_directions = jnp.asarray(pre_processed['ray_directions'][:])
+                self.target_images = jnp.asarray(pre_processed['images'][:])  # (num_images, height, width, 3)
+                self.target_poses = jnp.asarray(pre_processed['poses'][:])  # (num_images, 4, 4)
+                self.target_ray_origins = jnp.asarray(pre_processed['ray_origins'][:])  # (num_images, 3)
+                self.target_ray_directions = jnp.asarray(pre_processed['ray_directions'][:])  # (num_images, height* width, 3)
             else:  # otherwise, create said npz file
                 print(f"creating npz archive for {split}, {name}.")
                 images, poses, ray_origins, ray_directions = SyntheticScenesHelper.create_numpy_arrays(folder)
@@ -875,11 +884,42 @@ class ViewSynthesisComparison(Metric):
         """
         inr = kwargs['inr']
         inr = self.wrap_inr(inr)
+        state = kwargs.get("state", None)
 
         # Render the image
-        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0))(inr,
+
+        # self.target_images  (num_images, height, width, 3)
+        # self.target_ray_origins  (num_images, 3)
+        # self.target_ray_directions (num_images, height, width, 3)
+
+        for i in range(self.target_images.shape[0]):
+            rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
+                                                                                                      self.target_ray_directions[i],
+                                                                                                      self.target_ray_origins[i],
+                                                                                                      state
+                                                                                                      )
+
+
+
+            # mses = self.mean_squared_error(rendered_images, self.target_images[i])
+            # psnrs = self.peak_signal_to_noise_ratio(rendered_images, self.target_images[i])
+            # ssims = self.structured_similarity_index(rendered_images, self.target_images[i])
+
+            mmse = jnp.mean(mses)
+            mpsnr = jnp.mean(psnrs)
+            mssim = jnp.mean(ssims)
+
+        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
                                                                                                   self.target_ray_directions,
-                                                                                                  self.target_ray_origins)
+                                                                                                  self.target_ray_origins,
+                                                                                                  state
+                                                                                                  )
+
+
+
+
+        # sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
+
         # Compute the mean squared error
         mses = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
         psnrs = jax.vmap(self.peak_signal_to_noise_ratio)(rendered_images, self.target_images)
