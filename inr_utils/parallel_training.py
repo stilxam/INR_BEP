@@ -90,3 +90,45 @@ def run_parallel_experiments(
             config_file_path=config_file_path
             )
         
+def run_sequential_experiments(
+        missing_kwargs:dict[str, PyTree], 
+        incomplete_config: Mapping,  
+        post_processing_config: Mapping,
+        key: Optional[jax.Array] = None,
+        config_file_path: Optional[str] = None
+        ):
+    if key is None:
+        key = jax.random.PRNGKey(seed=randbelow(2**32))
+        print(f"Used key: {key}.")
+    
+    key_gen = cju.key_generator(key)
+
+    post_processor = cdu.config_realization.get_model_from_config(  # we put this before the training
+        config=post_processing_config,  # so that if there are any problems with the post_processing_config
+        model_prompt = "post_processor_type",  # we find out before we spent time and resources training models
+        default_module_key="components_module",
+        initialize=False
+    )
+    post_processor = post_processor.initialize()
+
+    # prepare the keys and 
+    num_experiments = cdu.trees.get_first_leaf(missing_kwargs, is_leaf=eqx.is_array_like).shape[0]
+    keys = jax.random.split(next(key_gen), num=num_experiments)
+    # results = eqx.filter_vmap(run_single_experiment, in_axes=(0, None, 0))(missing_kwargs, incomplete_config, keys)
+    results = jax.lax.map(
+        lambda mk_key: run_single_experiment(mk_key[0], incomplete_config, mk_key[1]),
+        (missing_kwargs, keys)
+    )
+    
+    # process the results
+    # this involves storing them and logging stuff to wandb, so we can't vmap
+    results = tree_unstack(results)
+    corresponding_parameters = tree_unstack(missing_kwargs)
+    for result, experiment_parameters in zip(results, corresponding_parameters):
+        post_processor(
+            result, 
+            experiment_parameters=experiment_parameters, 
+            experiment_config=incomplete_config, 
+            key=next(key_gen), 
+            config_file_path=config_file_path
+            )

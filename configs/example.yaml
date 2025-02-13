@@ -3,8 +3,9 @@
 activation_kwargs:
     w0: [10., 10., 15., 15., 20., 20., 25., 25., 30., 30., 35., 35.]
 
-learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
+# learning_rate: [1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4, 1.5e-4, 3.e-4]
 
+data_index: [0, 1, 2] #, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] 
 ---
 # the arguments in here will be shared across experiments :)
 architecture: ./model_components
@@ -23,11 +24,27 @@ trainer_type: training.train_inr_scan
 loss_evaluator: losses.PointWiseLossEvaluator
 target_function: images.ContinuousImage
 target_function_config:
-  image: ./example_data/parrot.png
+  image: 
+      - ./DIV2K/DIV2K_entropy_5p_25p/0012.png
+      - ./DIV2K/DIV2K_entropy_5p_25p/0024.png
+      - ./DIV2K/DIV2K_entropy_5p_25p/0033.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0007.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0008.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0011.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0003.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0023.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0032.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0040.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0057.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0136.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0029.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0088.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0109.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
   data_index: None
 loss_function: losses.scaled_mse_loss
+
 
 sampler: sampling.GridSubsetSampler
 sampler_config:
@@ -44,7 +61,7 @@ steps: 40000
 components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
-  - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 2040, frequency: every_n_batches}]
+  - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 8160, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
 storage_directory: results/example_experiment
 wandb_kwargs:
@@ -54,7 +71,22 @@ wandb_kwargs:
 # for some of the metrics
 target_function: images.ContinuousImage
 target_function_config:
-  image: ./example_data/parrot.png
+  image: 
+      - ./DIV2K/DIV2K_entropy_5p_25p/0012.png
+      - ./DIV2K/DIV2K_entropy_5p_25p/0024.png
+      - ./DIV2K/DIV2K_entropy_5p_25p/0033.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0007.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0008.png
+      # - ./DIV2K/DIV2K_entropy_25p_75p/0011.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0003.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0023.png
+      # - ./DIV2K/DIV2K_entropy_75p_95p/0032.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0040.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0057.png
+      # - ./DIV2K/DIV2K_entropy_top_5p/0136.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0029.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0088.png
+      # - ./DIV2K/DIV2K_entropy_bottom_5p/0109.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
   data_index: None

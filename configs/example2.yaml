@@ -1,6 +1,6 @@
 ---
 # the arguments in here will be varried
-data_index: [0, 1, 2, 3, 4, 5]
+data_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 ---
 # the arguments in here will be shared across experiments :)
 architecture: ./model_components
@@ -21,19 +21,39 @@ loss_evaluator: losses.PointWiseLossEvaluator
 target_function: images.ContinuousImage
 target_function_config:
   image: 
-      - example_data/flowers_for_experiments/medium_entropy/2265579414_2e00a8f265_n.jpg 
-      - example_data/flowers_for_experiments/medium_entropy/5042785753_392cc4e74d_n.jpg
-      - example_data/flowers_for_experiments/low_entropy/132538273_335240fe5b_n.jpg 
-      - example_data/flowers_for_experiments/low_entropy/19019544592_b64469bf84_n.jpg
-      - example_data/flowers_for_experiments/high_entropy/11405573_24a8a838cc_n.jpg
-      - example_data/flowers_for_experiments/high_entropy/6250363717_17732e992e_n.jpg
+    - DIV2K/DIV2K_entropy_5p_25p/0012.png
+    - DIV2K/DIV2K_entropy_5p_25p/0024.png
+    - DIV2K/DIV2K_entropy_5p_25p/0033.png
+    - DIV2K/DIV2K_entropy_5p_25p/0034.png
+    - DIV2K/DIV2K_entropy_5p_25p/0037.png
+    - DIV2K/DIV2K_entropy_5p_25p/0042.png
+    - DIV2K/DIV2K_entropy_5p_25p/0058.png
+    - DIV2K/DIV2K_entropy_5p_25p/0081.png
+    - DIV2K/DIV2K_entropy_5p_25p/0096.png
+    - DIV2K/DIV2K_entropy_5p_25p/0144.png
+    - DIV2K/DIV2K_entropy_5p_25p/0168.png
+    - DIV2K/DIV2K_entropy_5p_25p/0183.png
+    - DIV2K/DIV2K_entropy_5p_25p/0195.png
+    - DIV2K/DIV2K_entropy_5p_25p/0196.png
+    - DIV2K/DIV2K_entropy_5p_25p/0202.png
+    - DIV2K/DIV2K_entropy_5p_25p/0203.png
+    - DIV2K/DIV2K_entropy_5p_25p/0211.png
+    - DIV2K/DIV2K_entropy_5p_25p/0213.png
+    - DIV2K/DIV2K_entropy_5p_25p/0214.png
+    - DIV2K/DIV2K_entropy_5p_25p/0218.png
+    - DIV2K/DIV2K_entropy_5p_25p/0221.png
+    - DIV2K/DIV2K_entropy_5p_25p/0258.png
+    - DIV2K/DIV2K_entropy_5p_25p/0225.png
+    - DIV2K/DIV2K_entropy_5p_25p/0248.png
+    - DIV2K/DIV2K_entropy_5p_25p/0268.png
+    - DIV2K/DIV2K_entropy_5p_25p/0252.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
 loss_function: losses.scaled_mse_loss
 
 sampler: sampling.GridSubsetSampler
 sampler_config:
-  size: [320, 240]
+  size: [2040, 1356]
   batch_size: 2000
   allow_duplicates: true
 
@@ -47,7 +67,7 @@ steps: 40000
 components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
-  - [metrics.MSEOnFixedGrid, {grid: [320, 240], batch_size: 3200, frequency: every_n_batches}]
+  - [metrics.MSEOnFixedGrid, {grid: [2040, 1356], batch_size: 8160, frequency: every_n_batches}]
   - [metrics.PlotOnGrid2D, {grid: 256, batch_size: 2048, frequency: every_n_batches, use_wandb: true}]
 storage_directory: results/example_experiment
 wandb_kwargs:
@@ -58,12 +78,32 @@ wandb_kwargs:
 target_function: images.ContinuousImage
 target_function_config:
   image: 
-      - example_data/flowers_for_experiments/medium_entropy/2265579414_2e00a8f265_n.jpg 
-      - example_data/flowers_for_experiments/medium_entropy/5042785753_392cc4e74d_n.jpg
-      - example_data/flowers_for_experiments/low_entropy/132538273_335240fe5b_n.jpg 
-      - example_data/flowers_for_experiments/low_entropy/19019544592_b64469bf84_n.jpg
-      - example_data/flowers_for_experiments/high_entropy/11405573_24a8a838cc_n.jpg
-      - example_data/flowers_for_experiments/high_entropy/6250363717_17732e992e_n.jpg
+    - DIV2K/DIV2K_entropy_5p_25p/0012.png
+    - DIV2K/DIV2K_entropy_5p_25p/0024.png
+    - DIV2K/DIV2K_entropy_5p_25p/0033.png
+    - DIV2K/DIV2K_entropy_5p_25p/0034.png
+    - DIV2K/DIV2K_entropy_5p_25p/0037.png
+    - DIV2K/DIV2K_entropy_5p_25p/0042.png
+    - DIV2K/DIV2K_entropy_5p_25p/0058.png
+    - DIV2K/DIV2K_entropy_5p_25p/0081.png
+    - DIV2K/DIV2K_entropy_5p_25p/0096.png
+    - DIV2K/DIV2K_entropy_5p_25p/0144.png
+    - DIV2K/DIV2K_entropy_5p_25p/0168.png
+    - DIV2K/DIV2K_entropy_5p_25p/0183.png
+    - DIV2K/DIV2K_entropy_5p_25p/0195.png
+    - DIV2K/DIV2K_entropy_5p_25p/0196.png
+    - DIV2K/DIV2K_entropy_5p_25p/0202.png
+    - DIV2K/DIV2K_entropy_5p_25p/0203.png
+    - DIV2K/DIV2K_entropy_5p_25p/0211.png
+    - DIV2K/DIV2K_entropy_5p_25p/0213.png
+    - DIV2K/DIV2K_entropy_5p_25p/0214.png
+    - DIV2K/DIV2K_entropy_5p_25p/0218.png
+    - DIV2K/DIV2K_entropy_5p_25p/0221.png
+    - DIV2K/DIV2K_entropy_5p_25p/0258.png
+    - DIV2K/DIV2K_entropy_5p_25p/0225.png
+    - DIV2K/DIV2K_entropy_5p_25p/0248.png
+    - DIV2K/DIV2K_entropy_5p_25p/0268.png
+    - DIV2K/DIV2K_entropy_5p_25p/0252.png
   scale_to_01: true
   interpolation_method: images.make_piece_wise_constant_interpolation
   data_index: None
