@@ -4,7 +4,7 @@ The most important class is Trainer, which is a class that can be used to train 
 Additionally, the ValidationLoop class can be used to perform validation during training
     It is implemented as a metric, so it can be used in the MetricCollector
 """
-from typing import Callable, Union, Any, Optional
+from typing import Callable, Union, Optional
 
 import jax
 import equinox as eqx

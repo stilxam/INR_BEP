@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=tesr82933
+#SBATCH --account=my_snellius_account
 #SBATCH --time=1:00:00
 #SBATCH -p gpu
 #SBATCH -N 1
@@ -25,9 +25,9 @@ unset __conda_setup
 # <<< conda initialize <<<
 
 conda init bash
-conda activate goshko_bep  # conda environment name
+conda activate inr_edu_24  # conda environment name
 
-wandblogin="$(< ./wandb_login)"  # password stored in a file, don't add this file to your git repo!
+wandblogin="$(< ../wandb.login)"  # password stored in a file, don't add this file to your git repo!
 wandb login "$wandblogin"
 
 
@@ -36,3 +36,7 @@ python run_sequential.py --config=./configs/example.yaml  # you can put more lin
 # to do more groups of experements in sequence. 
 # Snellius should be able to train a large batch of experiments in parallel in a very short time
 # so it makes sense to do a couple of batches in sequence in the same script
+
+
+# sdf sweep??
+#python run_from_inr_sweep.py --sweep_id=gie5fxqw > sdf_sweep_example.out

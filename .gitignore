@@ -14,8 +14,23 @@ example_data/*.ply
 example_data/*.xyz
 
 /example_data/
-/DIV2K/
+/DIV2k/
+/DIV2k_entropy_5p_25p/
+/DIV2k_entropy_25p_75p/
+/DIV2k_entropy_75p_95p/
+/DIV2k_entropy_bottom_5p/
+/DIV2k_entropy_top_5p/
 /GTZAN/
+/GTZAN_entropy_5p_25p/
+/GTZAN_entropy_25p_75p/
+/GTZAN_entropy_75p_95p/
+/GTZAN_entropy_bottom_5p/
+/GTZAN_entropy_top_5p/
+/results
+/synthetic_scenes
+.vscode
+synthetic_scenes.zip
+/example_data
 /results/plots/
 /synthetic_scenes
 /example_data/nerfdata
@@ -25,7 +40,9 @@ example_data/*.xyz
 *.eqx
 
 /reconstructed_audio.wav
-wandb_login
+/results
+/factory_slurm
+/factory_configswandb_login
 example_slurm_script.bash
 configs/example.yaml
 configs/example2.yaml

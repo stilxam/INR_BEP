@@ -4,9 +4,7 @@ Module containing callbacks for the training.train_inr function.
 import abc
 import pprint
 from typing import Callable, Union, Any
-from functools import partial
 
-import jax
 from jax import numpy as jnp
 
 from common_dl_utils.metrics import MetricCollector

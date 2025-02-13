@@ -4,20 +4,16 @@ The __init__ method of these classes typically takes entire layers or modules as
 If you want to create instances of these classes from hyperparameters such as input size, hidden size, output size, etc.,
 you can either use a from_config method when available, or provide INRLayer instances created from these hyperparameters by their from_config methods.
 """
-from abc import ABC
-from dataclasses import InitVar
-from typing import Callable, Optional, Union, Any, Tuple, List
+from typing import Callable, Optional, Union
 from functools import partial, wraps
 import warnings
 import abc
 
 import jax
 from jax import numpy as jnp
-from jax import random, lax
 import equinox as eqx
-from jax._src.numpy.linalg import outer
 
-from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer, SirenLayer
+from model_components.inr_layers import INRLayer, Linear, PositionalEncodingLayer
 from model_components import auxiliary as aux
 
 from common_jax_utils import key_generator
@@ -59,12 +55,14 @@ class MLPINR(eqx.nn.Sequential, INRModule):
             num_layers: int,
             layer_type: type[INRLayer],
             activation_kwargs: dict,
+
             key: jax.Array,
             initialization_scheme: Optional[Callable] = None,
             initialization_scheme_kwargs: Optional[dict] = None,
             positional_encoding_layer: Optional[PositionalEncodingLayer] = None,
             num_splits=1,
             post_processor: Optional[Callable] = None,
+            learnable_kwarg_keys: Optional[tuple]=None,
     ):
         """
         :param in_size: input size of network
@@ -90,7 +88,8 @@ class MLPINR(eqx.nn.Sequential, INRModule):
             initialization_scheme = layer_type.from_config
         else:
             initialization_scheme = partial(initialization_scheme, layer_type=layer_type,
-                                            **initialization_scheme_kwargs)
+                                            **initialization_scheme_kwargs,
+                                            )
 
         if positional_encoding_layer is not None:
             first_layer = positional_encoding_layer
@@ -102,7 +101,9 @@ class MLPINR(eqx.nn.Sequential, INRModule):
                 num_splits=num_splits,
                 key=next(key_gen),
                 is_first_layer=True,
-                **activation_kwargs
+                learnable_kwarg_keys=learnable_kwarg_keys,
+                **activation_kwargs,
+
             )
             first_hidden_size = hidden_size
 
@@ -115,7 +116,8 @@ class MLPINR(eqx.nn.Sequential, INRModule):
                 num_splits=num_splits,
                 key=next(key_gen),
                 is_first_layer=False,
-                **activation_kwargs
+                learnable_kwarg_keys=learnable_kwarg_keys,
+                **activation_kwargs,
             ))
             for _ in range(num_layers - 3):
                 layers.append(initialization_scheme(
@@ -124,7 +126,9 @@ class MLPINR(eqx.nn.Sequential, INRModule):
                     num_splits=num_splits,
                     key=next(key_gen),
                     is_first_layer=False,
-                    **activation_kwargs
+                    learnable_kwarg_keys=learnable_kwarg_keys,
+                    **activation_kwargs,
+
                 ))
             out_layer = Linear.from_config(
                 in_size=hidden_size,

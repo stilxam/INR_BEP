@@ -89,3 +89,19 @@ def squeeze_array(x):
     removes a dimension of size 1 from the array
     """
     return jnp.squeeze(x)
+
+
+def real_scalar(x):
+    """
+    return the real part of the first element
+    """
+    return jnp.real(x[0])
+
+def squeeze_array(x):
+    """
+    removes a dimension of size 1 from the array
+    """
+    return jnp.squeeze(x)
+
+def scalar_from_array_output(array: jax.Array):
+    return jnp.squeeze(array)

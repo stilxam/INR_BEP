@@ -8,6 +8,8 @@ Alternatively one can write an initialization function that comes up with the we
 and then passes those to the __init__ function of the required class.
 """
 import abc
+# from distutils.command.install import value
+# from operator import ifloordiv
 from typing import Union, Callable, Optional
 from collections.abc import Sequence
 import inspect
@@ -44,6 +46,7 @@ class INRLayer(eqx.Module):
     allowed_keys: eqx.AbstractClassVar[
         frozenset[Union[str, tuple[str, aux.ANNOT]]]]  # the keys that should be present in activation_kwargs
     allows_multiple_weights_and_biases: eqx.AbstractClassVar[bool]
+    learnable_kwarg_keys: tuple
 
     @classmethod
     def _check_keys(cls, activation_kwargs):
@@ -85,9 +88,13 @@ class INRLayer(eqx.Module):
         """
         Apply the activation function to the input using the kwargs stored in self.activation_kwargs
         """
-        return self._activation_function(*args, **jax.lax.stop_gradient(self.activation_kwargs))
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return self._activation_function(*args, **kwargs)
 
-    def __init__(self, weights, biases, **activation_kwargs):
+    def __init__(self, weights, biases, learnable_kwarg_keys:Optional[tuple[str,...]]=None, **activation_kwargs):
         """
         Initialise an INRLayer from its weights, biases, and activation_kwargs
         """
@@ -96,6 +103,7 @@ class INRLayer(eqx.Module):
         self.biases = biases
         activation_kwargs = self._check_keys(activation_kwargs)
         self.activation_kwargs = activation_kwargs
+        self.learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
 
     def __init_subclass__(cls):
         """__init_subclass__
@@ -189,6 +197,8 @@ class SirenLayer(INRLayer):
     """
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
+    learnable_kwarg_keys: tuple
+
 
     @classmethod
     def from_config(
@@ -196,6 +206,7 @@ class SirenLayer(INRLayer):
             in_size: int,
             out_size: int,
             num_splits: int = 1,
+            learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
             *,
             key: jax.Array,
             is_first_layer: bool,
@@ -242,10 +253,18 @@ class SirenLayer(INRLayer):
             jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
         bias = bias_factor * bias
 
-        return cls(weight, bias, **activation_kwargs)
 
-    @staticmethod
-    def _activation_function(x, w0):
+        learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+
+        return cls(weight, bias, learnable_kwarg_keys, **activation_kwargs)
+
+
+
+    def _activation_function(self, x, w0):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
         return jnp.sin(w0 * x)
 
 class SinCardLayer(SirenLayer):
@@ -260,12 +279,15 @@ class SinCardLayer(SirenLayer):
     """
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
+    learnable_kwarg_keys: tuple
+
     @classmethod
     def from_config(
                   cls,
                   in_size: int,
                   out_size: int,
                   num_splits: int = 1,
+                  learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
                   *,
                   key: jax.Array,
                   is_first_layer: bool,
@@ -311,12 +333,13 @@ class SinCardLayer(SirenLayer):
               bias_factor = jnp.pi / jnp.sqrt(
                   jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
               bias = bias_factor * bias
+              learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
 
-              return cls(weight, bias, **activation_kwargs)
+              return cls(weight, bias, learnable_kwarg_keys, **activation_kwargs)
 
 
-    @staticmethod
-    def _activation_function(x, w0):
+
+    def _activation_function(self, x, w0):
         """
         since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
         i wrote a bunch of versions cuz i wasnt sure
@@ -324,6 +347,10 @@ class SinCardLayer(SirenLayer):
         """
         # return jnp.sinc(w0 * x / jnp.pi)
         # return jnp.where(x == 0, 1, jnp.sin(w0 * x) / x)
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
         return jnp.sinc(w0 * x)
 
 
@@ -335,12 +362,15 @@ class AdaHoscLayer(INRLayer):
     """
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
+    learnable_kwarg_keys: tuple
+
     @classmethod
     def from_config(
                cls,
                in_size: int,
                out_size: int,
                num_splits: int = 1,
+               learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
                *,
                key: jax.Array,
                is_first_layer: bool,
@@ -386,16 +416,20 @@ class AdaHoscLayer(INRLayer):
            bias_factor = jnp.pi / jnp.sqrt(
                jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
            bias = bias_factor * bias
+           learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
 
-           return cls(weight, bias, **activation_kwargs)
+           return cls(weight, bias, learnable_kwarg_keys, **activation_kwargs)
 
 
-    @staticmethod
-    def _activation_function(x, w0):
+    def _activation_function(self, x, w0):
         """
         since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
 
         """
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
         return act.ada_hosc_activation(x, w0)
 
 
@@ -405,12 +439,15 @@ class HoscLayer(INRLayer):
     """
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
+    learnable_kwarg_keys: tuple
+
     @classmethod
     def from_config(
                cls,
                in_size: int,
                out_size: int,
                num_splits: int = 1,
+               learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
                *,
                key: jax.Array,
                is_first_layer: bool,
@@ -457,16 +494,20 @@ class HoscLayer(INRLayer):
                jnp.sum(jnp.square(weight), axis=1))  # from https://arxiv.org/pdf/2102.02611.pdf page 6 third paragaph
            bias = bias_factor * bias
 
-           return cls(weight, bias, **activation_kwargs)
+           learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+           return cls(weight, bias, learnable_kwarg_keys, **activation_kwargs)
 
 
-    @staticmethod
-    def _activation_function(x, w0):
+    def _activation_function(self, x, w0):
         """
         since the cardinal sinusoid is defined as sin(w0*x)/x, we need to handle the case where x=0
         i wrote a bunch of versions cuz i wasnt sure
 
         """
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
         return act.hosc_activation(x, w0)
 
 
@@ -480,9 +521,20 @@ class RealWIRE(INRLayer):
     """
     allowed_keys = frozenset({'w0', 's0'})
     allows_multiple_weights_and_biases = True
+    learnable_kwarg_keys: tuple
+
 
     @classmethod
-    def from_config(cls, in_size, out_size, num_splits=1, *, key, is_first_layer, **activation_kwargs):
+    def from_config(cls,
+                    in_size,
+                    out_size,
+                    num_splits=1,
+                    learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
+                    *,
+                    key,
+                    is_first_layer,
+                    **activation_kwargs
+                    ):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -535,10 +587,14 @@ class RealWIRE(INRLayer):
         weights = [frequency_weight, scale_weight]
         biases = [frequency_bias, scale_bias]
 
-        return cls(weights, biases, **activation_kwargs)
+        learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+        return cls(weights, biases, learnable_kwarg_keys, **activation_kwargs)
 
-    @staticmethod
-    def _activation_function(*x, w0, s0):
+    def _activation_function(self, *x, w0, s0):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
         return act.real_gabor_wavelet(x, s0=s0, w0=w0)
 
 
@@ -553,11 +609,21 @@ class ComplexWIRE(INRLayer):
     """
     allowed_keys = frozenset({'w0', 's0'})
     allows_multiple_weights_and_biases = True
-    _activation_function = staticmethod(act.complex_gabor_wavelet)
+    # _activation_function = staticmethod(act.complex_gabor_wavelet)
+    learnable_kwarg_keys: tuple
+
 
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
-                    **activation_kwargs):
+    def from_config(cls,
+                    in_size: int,
+                    out_size: int,
+                    num_splits: int = 1,
+                    learnable_kwarg_keys: Optional[tuple[str, ...]] = None,
+                    *,
+                    key: jax.Array,
+                    is_first_layer: bool,
+                    **activation_kwargs
+                    ):
         """from_config create a layer from hyperparameters
 
         :param in_size: size of the input
@@ -619,7 +685,15 @@ class ComplexWIRE(INRLayer):
 
             weights.append(weight)
             biases.append(bias)
-        return cls(weights, biases, **activation_kwargs)
+        learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+        return cls(weights, biases, learnable_kwarg_keys, **activation_kwargs)
+
+    def _activation_function(self, *x, w0, s0):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
 class Linear(INRLayer):
@@ -697,12 +771,15 @@ class GaussianINRLayer(INRLayer):
 
     NB no other activation_kwargs than inverse_scale are allowed.
     """
-    _activation_function = staticmethod(act.unscaled_gaussian_bump)
+    # _activation_function = staticmethod(act.unscaled_gaussian_bump)
     allowed_keys = frozenset({'inverse_scale'})
     allows_multiple_weights_and_biases = True
+    learnable_kwarg_keys: tuple
+
 
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool,
+
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, learnable_kwarg_keys: Optional[tuple[str, ...]] = None,  *, key: jax.Array, is_first_layer: bool,
                     **activation_kwargs):
         """from_config create a layer from hyperparameters
 
@@ -736,33 +813,85 @@ class GaussianINRLayer(INRLayer):
             minval=-1,
             maxval=1
         )
-        return cls(weights, biases, **activation_kwargs)
+        learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+        return cls(weights, biases, learnable_kwarg_keys, **activation_kwargs)
+
+    def _activation_function(self, x, inverse_scale):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.unscaled_gaussian_bump(x, inverse_scale=inverse_scale)
 
 
 class QuadraticLayer(GaussianINRLayer):
-    _activation_function = staticmethod(act.quadratic_activation)
+    # _activation_function = staticmethod(act.quadratic_activation)
     allowed_keys = frozenset({'a'})
     allows_multiple_weights_and_biases = True
+    # learnable_kwarg_keys: tuple
+
+    def _activation_function(self, x, a):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.quadratic_activation(x, a)
+
 
 class MultiQuadraticLayer(GaussianINRLayer):
-    _activation_function = staticmethod(act.multi_quadratic_activation)
+    # _activation_function = staticmethod(act.multi_quadratic_activation)
     allowed_keys = frozenset({'a'})
     allows_multiple_weights_and_biases = True
+    # learnable_kwarg_keys: tuple
+    def _activation_function(self, x, a):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.multi_quadratic_activation(x, a)
+
 
 class LaplacianLayer(GaussianINRLayer):
-    _activation_function = staticmethod(act.laplacian_activation)
+    # _activation_function = staticmethod(act.laplacian_activation)
     allowed_keys = frozenset({'a'})
     allows_multiple_weights_and_biases = True
+    # learnable_kwarg_keys: tuple
+
+    def _activation_function(self, x, a):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.laplacian_activation(x, a)
+
 
 class SuperGaussianLayer(GaussianINRLayer):
-    _activation_function = staticmethod(act.super_gaussian_activation)
+    # _activation_function = staticmethod(act.super_gaussian_activation)
     allowed_keys = frozenset({'a', "b"})
     allows_multiple_weights_and_biases = True
+    # learnable_kwarg_keys: tuple
+
+    def _activation_function(self, x, a, b):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.super_gaussian_activation(x, a, b)
+
 
 class ExpSinLayer(GaussianINRLayer):
-    _activation_function = staticmethod(act.exp_sin_activation)
+    # _activation_function = staticmethod(act.exp_sin_activation)
     allowed_keys = frozenset({'a'})
     allows_multiple_weights_and_biases = True
+    # learnable_kwarg_keys: tuple
+
+    def _activation_function(self, x, a):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.exp_sin_activation(x, a)
+
 
 
 class FinerLayer(INRLayer):
@@ -773,10 +902,12 @@ class FinerLayer(INRLayer):
 
     allowed_keys = frozenset({'w0'})
     allows_multiple_weights_and_biases = False
-    _activation_function = staticmethod(act.finer_activation)
+    # _activation_function = staticmethod(act.finer_activation)
+    learnable_kwarg_keys: tuple
+
 
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, *, key: jax.Array, is_first_layer: bool, bias_k:float, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, learnable_kwarg_keys: Optional[tuple[str, ...]] = None, *, key: jax.Array, is_first_layer: bool, bias_k:float, **activation_kwargs):
 
         """
         Initialize FINER layer from hyperparameters
@@ -801,7 +932,17 @@ class FinerLayer(INRLayer):
 
         # Bias initialization over a larger range to flexibly tune the frequency set
         biases = jax.random.uniform(b_key, shape=(out_size,), minval=-k, maxval=k)
-        return cls(weights, biases, **activation_kwargs)
+        learnable_kwarg_keys = learnable_kwarg_keys if learnable_kwarg_keys is not None else tuple()
+
+
+        return cls(weights, biases, learnable_kwarg_keys, **activation_kwargs)
+
+    def _activation_function(self, x, w0):
+        kwargs = {
+            key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
+            for key, value in self.activation_kwargs.items()
+        }
+        return act.finer_activation(x, w0)
 
 
 class PositionalEncodingLayer(eqx.nn.StatefulLayer):
@@ -904,3 +1045,163 @@ class TridentPositionalEncoding(PositionalEncodingLayer):
         :returns: dimensionality of the embedding
         """
         return 2 * self.embedding_matrix.shape[0] * in_size
+
+
+class IntegerLatticeEncoding(PositionalEncodingLayer):
+    # TODO Simon: we need to allow for a scheduler in the train step to increase alpha.
+    _is_learnable = False
+    _min_alpha_state_index: eqx.nn.StateIndex
+    _alpha_state_index: eqx.nn.StateIndex
+    _max_alpha_state_index: eqx.nn.StateIndex
+
+    def is_stateful(self):
+        return True
+    
+    def __init__(self, embedding_matrix):
+        init_alpha = 1.1 
+        max_alpha = jnp.linalg.norm(embedding_matrix, axis=1).max()
+        
+        self._min_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._alpha_state_index = eqx.nn.StateIndex(jnp.asarray(init_alpha, dtype=jnp.float32))
+        self._max_alpha_state_index = eqx.nn.StateIndex(jnp.asarray(max_alpha, dtype=jnp.float32))
+        super().__init__(embedding_matrix)
+
+    @classmethod
+    def from_config(cls, N, dim_input):
+        """
+        Generates the integer lattice mapping matrix B
+
+        :parameter N: frequency bound
+        :dim_input: input dimension
+        :return: the integer lattice mapping matrix
+        """
+
+        # all possible values in the range [-N, N]
+        grid_ranges = [jnp.arange(-N, N + 1) for _ in range(dim_input)]
+        
+        # create a grid of all combinations of the values in [-N, N]
+        grid_mesh = jnp.meshgrid(*grid_ranges, indexing='ij')
+        
+        # stack combinations into a matrix
+        B = jnp.stack([g.flatten() for g in grid_mesh], axis=-1)
+
+        # apply infinity norm constraint ||n||_∞ ≤ N
+        mask = jnp.max(jnp.abs(B), axis=1) <= N
+        B = B[mask]
+
+        # dentify where all previous elements (n1, ..., n_{j-1} for any j>1) are zero
+        zero_prefix_mask = jnp.cumprod(B == 0, axis=1, dtype=jnp.int32)
+
+        # set H, in which a negative component follows a sequence of zeros
+        H = jnp.any((zero_prefix_mask[:, :-1] == 1) & (B[:, 1:] < 0), axis=1)
+
+        # remove elements in H
+        B = B[~H]
+
+        return cls(B)
+    
+    def weigh_embedding_matrix(self, state):
+        """
+        Applies weighing to the rows of the embedding matrix
+        Weighing factor alpha is incremented linearly during training 
+        until a maximum value is reached  
+        """
+        embedding_matrix = self.embedding_matrix
+
+        current_alpha = state.get(self._alpha_state_index)
+        max_alpha = state.get(self._max_alpha_state_index)
+        
+        current_alpha = jnp.where(current_alpha < max_alpha, current_alpha, max_alpha)
+        
+        def weigh_B(B, alpha):
+            """
+            Assign a weight to the elements of all rows in embedding matrix B,
+            where the weighing is evaluated per row
+
+            :parameter B: the original embedding matrix B
+            :parameter alpha: the current value of alpha at a given state
+            :return: matrix B with weighing applied
+            """
+            def w_alpha(z):
+                """
+                Determines a weight for a single row (frequency) of embedding matrix B, 
+                depending on the values of alpha and the norm of the row
+
+                :parameter z: a row of embedding matrix B
+                :return: the weight to assign to that row
+                """
+                return jnp.where(
+                    alpha - z < 0,
+                    0, 
+                    jnp.where(alpha-z<=1, 0.5*(1-jnp.cos((alpha-z)*jnp.pi)), 1),
+                )
+            # collect the norm of each row in B
+            norms = jnp.linalg.norm(B, axis=1)
+
+            # weigh the rows
+            weights = w_alpha(norms)
+            
+            # apply the weight of each row to B
+            weighted_B = B * weights[:, None]
+
+            return weighted_B
+        
+        weighted_embedding_matrix = weigh_B(embedding_matrix, current_alpha)
+
+        return weighted_embedding_matrix
+
+    def pruned_model(self, state, target_ratio):
+        """
+        Replaces the INR's embedding and weights matrices with smaller versions
+        that retain the most relevant frequency components of the embedding matrix 
+        and the weight vectors that correspond to them
+        """
+
+        # TODO add condition for when the pruning happens, dependent on the state
+        embedding_matrix = self.embedding_matrix
+        weights_matrix = self.weights # not sure how to get the model weights
+        
+        def prune_B_and_W(B, W, target_ratio):
+            """
+            :parameter target_ratio: ratio of rows to retain from the embedding matrix,
+            e.g. target_ratio = 0.5 means we keep half the number of rows
+            :return pruned_B: pruned embedding matrix (retained_rows, in_size)
+            :return pruned_W: pruned weights matrix (out_size, 2 * retained_rows)
+            """
+            # number of frequencies in B
+            m = B.shape[0]  
+
+            # sum norms for sine and cosine components in W 
+            frequency_importances = jnp.linalg.norm(W[:, :m], axis=0) + jnp.linalg.norm(W[:, m:], axis=0)
+
+            # number of rows to keep
+            target_size = jnp.ceil(target_ratio * m).astype(int)
+
+            # get indices of the rows we keep
+            kept_indices = jnp.argsort(frequency_importances)[-target_size:]
+
+            pruned_B = B[kept_indices]
+
+            # keep indices in both the sine and cosine halves of W
+            pruned_W = jnp.concatenate([W[:, kept_indices], W[:, kept_indices + m]], axis=1)
+
+            return pruned_B, pruned_W
+        
+        pruned_B, pruned_W = prune_B_and_W(embedding_matrix, weights_matrix, target_ratio)
+        
+        return pruned_B, pruned_W
+
+    def out_size(self, in_size:int)->int:
+        return 2*self.embedding_matrix.shape[0]*in_size
+
+            
+    def __call__(self, x:jax.Array, state: eqx.nn.State, *, key:Optional[jax.Array])->tuple[jax.Array, eqx.nn.State]:
+        
+        embedding_matrix = self.weigh_embedding_matrix(state)
+
+        encoding = jnp.concatenate([jnp.cos(2*jnp.pi*(x @ embedding_matrix.T)), 
+                                    jnp.sin(2*jnp.pi*(x @ embedding_matrix.T))], 
+                                    axis=-1).flatten()
+        
+        return encoding, state
+    

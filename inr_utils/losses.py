@@ -2,7 +2,6 @@
 Some common loss functions for training INRs.
 """
 from typing import Optional, Callable, Union
-import functools
 
 import jax
 from jax import numpy as jnp
@@ -71,10 +70,10 @@ def sdf_loss(gt_normals, y, y_pred, y_grad) -> jax.Array:
     gradient_constraint = jnp.abs(jnp.linalg.norm(y_grad) - 1)
 
     loss_array = jnp.array([
-        jnp.abs(jnp.mean(sdf_constraint)) * 3e3,
-        jnp.mean(inter_constraint) * 3e3,
-        jnp.mean(normal_constraint) * 1e2,
-        jnp.mean(gradient_constraint) * 5e1
+        jnp.abs(jnp.mean(sdf_constraint)) * 3000,
+        jnp.mean(inter_constraint) * 3000,
+        jnp.mean(normal_constraint) * 100,
+        jnp.mean(gradient_constraint) * 50
     ])
     return jnp.sum(loss_array)
 
@@ -136,7 +135,7 @@ class PointWiseGradLossEvaluator(eqx.Module):
 
     def __init__(
             self,
-            target_function: Callable,
+            target_function: Union[Callable, eqx.Module],
             loss_function: Callable,
             take_grad_of_target_function: bool,
             state_update_function: Optional[Callable] = None
@@ -160,18 +159,30 @@ class PointWiseGradLossEvaluator(eqx.Module):
         """
         self.loss_function = loss_function
         if take_grad_of_target_function:
-            self.target_function = eqx.filter_grad(target_function)
+            self.target_function = eqx.filter_grad(lambda x: target_function(x).squeeze())
         else:
             self.target_function = target_function
         self.state_update_function = state_update_function
 
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+        return wrapped
+
     def __call__(self, inr: eqx.Module, locations: jax.Array, state: Optional[eqx.nn.State] = None):
+        inr = self.wrap_inr(inr)
         if state is not None:
-            inr_grad = eqx.filter_grad(inr, has_aux=True)
-            pred_val, _ = jax.vmap(inr_grad, (0, None))(locations, state)
+            inr_grad = eqx.filter_grad(inr)
+            pred_val = jax.vmap(inr_grad, (0, None))(locations, state)
         else:
             inr_grad = eqx.filter_grad(inr)
             pred_val = jax.vmap(inr_grad)(locations)
+
         true_val = jax.vmap(self.target_function)(locations)
 
         if self.state_update_function is not None:  # update state if necessary
@@ -264,7 +275,10 @@ class SoundLossEvaluator(eqx.Module):
 
         # Evaluate INR at time points - vmap over batch and window dimensions
         #inr_values = jax.vmap(lambda t: jax.vmap(lambda ti: inr(ti))(t))(time_points)
-        inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
+        if state is None:
+            inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
+        else:
+            inr_values, _ = jax.vmap(jax.vmap(inr, (0, None)), (0, None))(time_points, state)
         inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
 
         # Calculate time domain MSE loss

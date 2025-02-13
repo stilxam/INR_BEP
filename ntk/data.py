@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-from typing import Callable
 
 from inr_utils.images import make_lin_grid
 from common_jax_utils import key_generator

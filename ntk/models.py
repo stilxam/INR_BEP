@@ -8,7 +8,7 @@ import common_jax_utils as cju
 
 
 
-def make_init_apply(config: Config, key_gen: Generator) -> Tuple[Callable, Callable]:
+def make_init_apply(config: Config, key_gen: Generator) -> Tuple[Callable, Callable, Callable]:
     """Create initialization and apply functions for an MLP model."""
     inr = cju.run_utils.get_model_from_config_and_key(
         prng_key=next(key_gen),
@@ -25,7 +25,9 @@ def make_init_apply(config: Config, key_gen: Generator) -> Tuple[Callable, Calla
     def apply_fn(_params: Any, x: jnp.ndarray) -> jnp.ndarray:
         model = eqx.combine(_params, static)
         return model(x)
+        # return jax.grad(lambda loc: model(loc).squeeze())(x)
 
-    return init_fn, jax.vmap(apply_fn, (None, 0))
+
+    return init_fn, jax.vmap(apply_fn, (None, 0)), inr
 
 

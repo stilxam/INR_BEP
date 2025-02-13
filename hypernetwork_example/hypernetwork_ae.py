@@ -1,9 +1,8 @@
 import sys
 sys.path.append('../')
-from typing import Optional, Callable
+from typing import Optional
 
 import jax
-from jax import numpy as jnp
 import equinox as eqx
 import model_components as mc
 
