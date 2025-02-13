@@ -43,7 +43,12 @@ def main(
     wandb_group = config_dict["wandb_group"]
     wandb_entity = config_dict["wandb_entity"]
     wandb_project = config_dict["wandb_project"]
-    with wandb.init(config=config_dict, group=wandb_group, project=wandb_project, entity=wandb_entity):
+    with wandb.init(
+        config=cdu.config_creation.make_flat_config(config_dict), 
+        group=wandb_group, 
+        project=wandb_project, 
+        entity=wandb_entity
+        ):
         experiment = cju.run_utils.get_experiment_from_config_and_key(
             prng_key=next(key_gen),
             config=config_dict,
