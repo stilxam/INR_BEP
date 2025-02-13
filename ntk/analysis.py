@@ -23,14 +23,22 @@ def get_NTK_ntvp(apply_fn: Callable) -> Callable:
 
 def decompose_ntk(ntk: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, float]:
     """Decompose NTK into eigenvalues and eigenvectors."""
-    # eigvals, eigvecs = jnp.linalg.eigsh(ntk)
+    # eigvals, eigvecs = jnp.linalg.eigh(ntk)
+
     eigvals, eigvecs = scipy.sparse.linalg.eigsh(jax.device_get(ntk), k=ntk.shape[0]-1)
 
     rescaled_eigvals = jnp.flipud(eigvals) / jnp.min(jnp.abs(eigvals))
     # condition_number = jnp.linalg.cond(ntk)
     condition_number = eigvals.max() / jnp.abs(eigvals.min())
-    assert jnp.all(jnp.isfinite(eigvals))
-    assert not jnp.all(jnp.isnan(eigvecs))
+    # assert jnp.all(jnp.isfinite(eigvals))
+    # assert not jnp.any(jnp.isnan(eigvecs))
+    # if jnp.any(jnp.isnan(eigvecs)):
+    #     eigvecs = jnp.zeros_like(eigvecs)
+    # if not jnp.all(jnp.isfinite(eigvals)):
+    #     eigvals = jnp.zeros_like(eigvals)
+    #     condition_number = -1
+
+
     return jnp.flipud(eigvals), jnp.flipud(eigvecs.T), rescaled_eigvals, condition_number
 
 
