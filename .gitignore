@@ -42,7 +42,8 @@ synthetic_scenes.zip
 /reconstructed_audio.wav
 /results
 /factory_slurm
-/factory_configswandb_login
+/factory_configs
+wandb_login
 example_slurm_script.bash
 configs/example.yaml
 configs/example2.yaml
