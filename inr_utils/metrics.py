@@ -714,7 +714,7 @@ class JaccardAndReconstructionIndex(Metric):
             grid_resolution = (grid_resolution,) * num_dims
 
         # Create evaluation grid
-        grid_arrays = [np.linspace(-2, 2, res) for res in grid_resolution]
+        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
         self.resolution = grid_resolution[0]  # Assume uniform resolution for now
@@ -731,13 +731,28 @@ class JaccardAndReconstructionIndex(Metric):
         sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
         # clipped_vals = np.clip(sdf_values, -0.1, 0.1)
+        try:
+            vertices, faces, normals, values = skimage.measure.marching_cubes(
+                np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
+                level=0.0)
 
-        vertices, faces, normals, values = skimage.measure.marching_cubes(
-            np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
-            level=0.0)
+            shape = trimesh.Trimesh(vertices=vertices, faces=faces)
+            pred_inside = shape.contains(self.grid_points)
+            fig = go.Figure(go.Mesh3d(
+                x=vertices[:, 0],
+                y=vertices[:, 1],
+                z=vertices[:, 2],
+                i=faces[:, 0],
+                j=faces[:, 1],
+                k=faces[:, 2],
+            ))
+        except:
+            fig = go.Figure()
+            pred_inside = sdf_values <= 0
 
-        # shape = trimesh.Trimesh(vertices=vertices, faces=faces)
-        # pred_inside = shape.contains(self.grid_points)
+
+
+
 
         # fig = go.Figure(data=go.Isosurface(
         #     x=self.grid_points[:, 0],
@@ -750,16 +765,7 @@ class JaccardAndReconstructionIndex(Metric):
         #     caps=dict(x_show=False, y_show=False, z_show=False)
         # ))
 
-        fig = go.Figure(go.Mesh3d(
-            x=vertices[:, 0],
-            y=vertices[:, 1],
-            z=vertices[:, 2],
-            i=faces[:, 0],
-            j=faces[:, 1],
-            k=faces[:, 2],
-        ))
 
-        pred_inside = sdf_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
