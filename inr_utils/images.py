@@ -416,14 +416,26 @@ def rgb_to_grayscale(rgb_image:jax.Array):
     gray_image = gray_image.astype(jnp.uint8)  
     return gray_image
 
+# def image_grads(image: jax.Array)->jax.Array:
+#     """
+#     get the normalized gradient arrays of an image represented as an array, returned as: grad_x, grad_y = image_grads(image)
+#     """
+#     grads = jnp.gradient(image, axis=(0, 1))
+#     grad_y, grad_x = grads[0], grads[1]
+#     grad_x = (grad_x - jnp.min(grad_x)) / (jnp.max(grad_x) - jnp.min(grad_x))
+#     grad_y = (grad_y - jnp.min(grad_y)) / (jnp.max(grad_y) - jnp.min(grad_y))
+#     #return jnp.stack([grad_x, grad_y], axis=-1)
+#     return jnp.stack([grad_y, grad_x], axis=-1)
+
 def image_grads(image: jax.Array)->jax.Array:
     """
     get the normalized gradient arrays of an image represented as an array, returned as: grad_x, grad_y = image_grads(image)
     """
     grads = jnp.gradient(image, axis=(0, 1))
-    grad_y, grad_x = grads[0], grads[1]
-    grad_x = (grad_x - jnp.min(grad_x)) / (jnp.max(grad_x) - jnp.min(grad_x))
-    grad_y = (grad_y - jnp.min(grad_y)) / (jnp.max(grad_y) - jnp.min(grad_y))
+    grad_y, grad_x = grads
+    max_norm = jnp.max(jnp.sqrt(jnp.sum(jnp.square(grad_y) + jnp.square(grad_x))))
+    grad_x = grad_x / max_norm  # (grad_x - jnp.min(grad_x)) / (jnp.max(grad_x) - jnp.min(grad_x))
+    grad_y = grad_y / max_norm  # (grad_y - jnp.min(grad_y)) / (jnp.max(grad_y) - jnp.min(grad_y))
     #return jnp.stack([grad_x, grad_y], axis=-1)
     return jnp.stack([grad_y, grad_x], axis=-1)
 

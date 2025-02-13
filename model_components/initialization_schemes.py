@@ -16,6 +16,7 @@ Initializaiton schemes should be callables with the following signature:
 import jax
 from jax import numpy as jnp
 from model_components.inr_layers import INRLayer
+from common_jax_utils.types import register_type
 
 def siren_scheme(in_size:int, out_size:int,  w0:float,  num_splits=1,*, layer_type:type[INRLayer], key:jax.Array, is_first_layer:bool, scale_factor:float=1.0, **additional_layer_kwargs):
     """the initialization scheme from the SIREN paper, but able to initialize any layer type that has the same activation kwargs
