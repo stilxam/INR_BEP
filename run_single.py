@@ -10,6 +10,7 @@ import optax
 import wandb
 
 import common_jax_utils as cju
+import common_dl_utils as cdu
 
 
 
@@ -21,10 +22,22 @@ def main(
     with open(config, 'r') as config_file:
         config_dict = yaml.safe_load(config_file) # just a single config
 
+    if config_dict.get("post_processor_type", None) is not None:
+        post_processor = cdu.config_realization.get_model_from_config(  # we put this before the training
+            config=config_dict,  # so that if there are any problems with the post_processing_config
+            model_prompt = "post_processor_type",  # we find out before we spent time and resources training models
+            default_module_key="components_module",
+            initialize=False
+        )
+        post_processor = post_processor.initialize()
+    else:
+        post_processor = None
+
     if seed is None:
         seed=randbelow(2**32)
     print(f"Used seed: {seed}")
     key = jax.random.PRNGKey(seed=seed)
+    key_gen = cju.key_generator(key)
     print(f"Used key: {key}.")
 
     wandb_group = config_dict["wandb_group"]
@@ -32,7 +45,7 @@ def main(
     wandb_project = config_dict["wandb_project"]
     with wandb.init(config=config_dict, group=wandb_group, project=wandb_project, entity=wandb_entity):
         experiment = cju.run_utils.get_experiment_from_config_and_key(
-            prng_key=key,
+            prng_key=next(key_gen),
             config=config_dict,
             model_kwarg_in_trainer='inr',
             model_sub_config_name_base='model',  # so it looks for "model_config" in config
@@ -42,8 +55,17 @@ def main(
             initialize=False  # don't run the experiment yet, we want to use wandb
         )
         print(experiment)
-        experiment.initialize()
-        print("Finished")
+        result = experiment.initialize()
+        print("Finished training")
+        if post_processor is not None:
+            post_processor(
+            result, 
+            experiment_parameters={}, 
+            experiment_config=config_dict, 
+            key=next(key_gen), 
+            config_file_path=config
+            )
+            print("Finished post processing")
 
 if __name__ == '__main__':
     try:
