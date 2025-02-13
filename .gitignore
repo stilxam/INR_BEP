@@ -43,3 +43,7 @@ synthetic_scenes.zip
 /results
 /factory_slurm
 /factory_configs
+wandb_login
+example_slurm_script.bash
+configs/example.yaml
+configs/example2.yaml
