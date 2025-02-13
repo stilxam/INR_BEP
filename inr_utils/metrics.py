@@ -674,8 +674,8 @@ class JaccardAndReconstructionIndex(Metric):
             np.array(sdf_values.reshape(self.resolution, self.resolution, self.resolution)),
             level=0.0)
 
-        # shape = trimesh.Trimesh(vertices=vertices, faces=faces)
-        # pred_inside = shape.contains(self.grid_points)
+        shape = trimesh.Trimesh(vertices=vertices, faces=faces)
+        pred_inside = shape.contains(self.grid_points)
 
         # fig = go.Figure(data=go.Isosurface(
         #     x=self.grid_points[:, 0],
@@ -697,7 +697,7 @@ class JaccardAndReconstructionIndex(Metric):
             k=faces[:, 2],
         ))
 
-        pred_inside = sdf_values <= 0
+        # pred_inside = sdf_values <= 0
 
         # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
