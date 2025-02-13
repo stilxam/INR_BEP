@@ -693,7 +693,7 @@ class ComplexWIRE(INRLayer):
             key: jax.lax.stop_gradient(value) if key not in self.learnable_kwarg_keys else value
             for key, value in self.activation_kwargs.items()
         }
-        return act.complex_gabor_wavelet(x, s0=s0, w0=w0)
+        return act.complex_gabor_wavelet(*x, s0=s0, w0=w0)
 
 
 class Linear(INRLayer):
