@@ -3,7 +3,7 @@ example_data/MNIST
 zut.ipynb
 wandb
 *.out
-
+*.bash
 .idea
 .vscode
 /example_data/kirby.png
