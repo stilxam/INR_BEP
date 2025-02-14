@@ -28,8 +28,8 @@ class SDFDataLoader:
 
         self.mesh = trimesh.load(str(fp_ply))
 
-        if not self.mesh.is_watertight:
-            raise ValueError(f"Mesh {self.sdf_name} is not watertight")
+        # if not self.mesh.is_watertight:
+        #     raise ValueError(f"Mesh {self.sdf_name} is not watertight")
 
         vertices = self.mesh.vertices
 
@@ -47,9 +47,9 @@ class SDFDataLoader:
         # Update the mesh vertices
         self.mesh.vertices = vertices
 
-        if not self.mesh.is_watertight:
-            raise ValueError(
-                f"Rescaled mesh {self.sdf_name} is not watertight, please fix the mesh before using this class")
+        # if not self.mesh.is_watertight:
+        #     raise ValueError(
+        #         f"Rescaled mesh {self.sdf_name} is not watertight, please fix the mesh before using this class")
 
         coords = np.array(self.mesh.vertices)
         normals = np.array(self.mesh.vertex_normals)
@@ -62,7 +62,7 @@ class SDFDataLoader:
             grid_resolution = (grid_resolution,) * num_dims
 
         # Create evaluation grid
-        grid_arrays = [np.linspace(-2, 2, res) for res in grid_resolution]
+        grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = jnp.array(np.stack([m.reshape(-1) for m in grid_matrices], axis=-1))
         self.resolution = grid_resolution[0]  # Assume uniform resolution for now
