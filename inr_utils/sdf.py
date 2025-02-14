@@ -1,3 +1,5 @@
+import os
+
 import jax
 import jax.numpy as jnp
 
@@ -11,12 +13,12 @@ from inr_utils.images import make_lin_grid
 
 
 class SDFDataLoader:
-
-    def __init__(self, sdf_name: str, batch_size: int, keep_aspect_ratio: bool, grid_resolution: Union[tuple, int] = 10 , num_dims: Optional[int]=3, *, key: jax.Array):
+    # Simon to Maxwell: I changed the thing with sdf_name because we might want to be able to store our data in other places than just example_data.
+    def __init__(self, path: str, batch_size: int, keep_aspect_ratio: bool, grid_resolution: Union[tuple, int] = 10 , num_dims: Optional[int]=3, *, key: jax.Array):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
 
-        self.sdf_name = sdf_name
+        self.sdf_name = os.path.split(path)[-1].removesuffix(".ply")
         self.batch_size = batch_size
         self.on_surface_count = batch_size // 2
         self.off_surface_count = batch_size - self.on_surface_count
@@ -24,7 +26,7 @@ class SDFDataLoader:
 
         self.initial_key = jax.device_put(key, self._cpu)
 
-        fp_ply = Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply")
+        fp_ply = path#Path.cwd().joinpath("example_data", f"{self.sdf_name}.ply")
 
         self.mesh = trimesh.load(str(fp_ply))
 
