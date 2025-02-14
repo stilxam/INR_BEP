@@ -9,9 +9,10 @@ See https://github.com/SimonKoop/common_jax_utils/blob/main/src/common_jax_utils
 """
 import os
 from functools import partial
-from typing import Callable, Union, Tuple, Optional
+from typing import Callable, Union, Optional
 import tempfile
 from io import BytesIO
+from pathlib import Path
 
 import jax
 from jax import numpy as jnp
@@ -22,13 +23,17 @@ import librosa
 import plotly.graph_objects as go
 import skimage
 import trimesh
+import wandb
+from skimage.metrics import structural_similarity as ssim
 
 from common_dl_utils.metrics import Metric, MetricFrequency, MetricCollector  # noqa
 from inr_utils.images import scaled_array_to_image, evaluate_on_grid_batch_wise, evaluate_on_grid_vmapped, \
     make_lin_grid, make_gif, ContinuousImage
 from inr_utils.losses import mse_loss
 from inr_utils.states import handle_state
-from pathlib import Path
+from inr_utils.nerf_utils import SyntheticScenesHelper, ViewReconstructor
+import common_jax_utils as cju
+
 
 class PlotOnGrid2D(Metric):
     """
@@ -852,13 +857,6 @@ class JaccardAndReconstructionIndex(Metric):
 #
 #     return wrapped
 
-
-from .nerf_utils import SyntheticScenesHelper, ViewReconstructor
-from skimage.metrics import structural_similarity as ssim
-from PIL import Image
-
-
-
 class ViewSynthesisComparison(Metric):
     """
     Compute the mean squared error between the target image and the rendered image from the NeRF
@@ -879,6 +877,8 @@ class ViewSynthesisComparison(Metric):
             white_bkgd: bool,
             lindisp: bool,
             randomized: bool,
+            key: jax.Array,
+            subset_size:Optional[int],
     ):
         self._cpu = jax.devices('cpu')[0]
         self._gpu = jax.devices('gpu')[0]
@@ -905,16 +905,18 @@ class ViewSynthesisComparison(Metric):
                 np.savez(target_path, images=images, poses=poses, ray_origins=ray_origins,
                          ray_directions=ray_directions)
                 print(f"    finished creating {target_path}")
+        image_size = self.target_images.shape[1:]
 
-        file_base_names = [
-            file_name.removesuffix('.png')
-            for file_name in os.listdir(f"{folder}/rgb")
-        ]
-        with Image.open(f"{folder}/rgb/{file_base_names[0]}.png") as example_image:
-            image_size = example_image.size
+        self.key_gen = cju.key_generator(key)
 
+        subset_key = next(self.key_gen)
+        with jax.default_device(self._cpu):
+            if subset_size is not None:
+                self.indices = jax.random.choice(key, self.target_images.shape[0], shape=(subset_size,), replace=False)
+            else: 
+                self.indices = range(self.target_images.shape[0])
 
-        self.view_reconstructor = ViewReconstructor(
+        self.view_reconstructor = eqx.filter_jit(ViewReconstructor(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
             near=near,
@@ -923,35 +925,25 @@ class ViewSynthesisComparison(Metric):
             white_bkgd=white_bkgd,
             lindisp=lindisp,
             randomized=randomized,
-            height=image_size[0],
-            width=image_size[1],
+            batch_size=batch_size,
+            default_height=image_size[0],
+            default_width=image_size[1],
             folder=folder,
-            key=jax.random.PRNGKey(0)
-        )
+            #key=next(key_gen)
+        ))
 
 
         self.frequency = MetricFrequency(frequency)
         self.width = image_size[0]
         self.height = image_size[1]
-        self.batch_size = batch_size
-        # self.num_coarse_samples = num_coarse_samples
-        # self.num_fine_samples = num_fine_samples
-        # self.near = near
-        # self.far = far
-        # self.noise_std = noise_std
-        # self.white_bkgd = white_bkgd
-        # self.lindisp = lindisp
-        # self.randomized = randomized
-        # self.folder = folder
-        # self.ray_origins = self.target_ray_origins
-        # self.ray_directions = self.target_ray_directions
+        #self.batch_size = batch_size
 
     def compute(self, **kwargs) -> dict:
         """
         Compute the mean squared error between the target image and the rendered image from the NeRF
         """
         inr = kwargs['inr']
-        inr = self.wrap_inr(inr)
+        #inr = self.wrap_inr(inr)  # so it never returns state  # don't NeRF returns a single dict always
         state = kwargs.get("state", None)
 
         # Render the image
@@ -959,70 +951,61 @@ class ViewSynthesisComparison(Metric):
         # self.target_images  (num_images, height, width, 3)
         # self.target_ray_origins  (num_images, 3)
         # self.target_ray_directions (num_images, height, width, 3)
-
-        for i in range(self.target_images.shape[0]):
-            rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
-                                                                                                      self.target_ray_directions[i],
-                                                                                                      self.target_ray_origins[i],
-                                                                                                      state
-                                                                                                      )
+        mses = []
+        psnrs = []
+        ssims = []
+        predicted_images = []
 
 
+        for i in self.indices:
+            target_image = jax.device_put(self.target_images[i], self._gpu)
+            ray_origin = jax.device_put(self.target_ray_origins[i], self._gpu)
+            ray_directions = jax.device_put(self.target_ray_directions[i], self._gpu)
 
-            # mses = self.mean_squared_error(rendered_images, self.target_images[i])
-            # psnrs = self.peak_signal_to_noise_ratio(rendered_images, self.target_images[i])
-            # ssims = self.structured_similarity_index(rendered_images, self.target_images[i])
+            predicted_image, _ = self.view_reconstructor(
+                nerf=inr,
+                ray_origin=ray_origin,
+                ray_directions=ray_directions,
+                key=next(self.key_gen),
+                state=state,
+            )
 
-            mmse = jnp.mean(mses)
-            mpsnr = jnp.mean(psnrs)
-            mssim = jnp.mean(ssims)
+            mse = self.mean_squared_error(predicted_image, target_image)
+            psnr = self.peak_signal_to_noise_ratio(mse, 1.)
+            ssim = self.structured_similarity_index(predicted_image, target_image)
 
-        rendered_images, rendered_depth = jax.vmap(self.view_reconstructor, in_axes=(None, 0, 0, None))(inr,
-                                                                                                  self.target_ray_directions,
-                                                                                                  self.target_ray_origins,
-                                                                                                  state
-                                                                                                  )
+            mses.append(np.asarray(mse))
+            psnrs.append(np.asarray(psnr))
+            ssims.append(np.asarray(ssim))
+            predicted_images.append(wandb.Image(np.asarray(predicted_image)))
 
+        mean_mse = np.mean(mses)
+        mean_psnr = np.mean(psnrs)
+        mean_ssim = np.mean(ssims)
 
-
-
-        # sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
-
-        # Compute the mean squared error
-        mses = jax.vmap(self.mean_squared_error)(rendered_images, self.target_images)
-        psnrs = jax.vmap(self.peak_signal_to_noise_ratio)(rendered_images, self.target_images)
-        ssims = jax.vmap(self.structured_similarity_index)(rendered_images, self.target_images)
-
-        # if ssim is not vmappable, we can use the following line instead
-        # ssims = [self.structured_similarity_index(target_image, rendered_image) for target_image, rendered_image in zip(self.target_images, rendered_images)]
-        mmse = jnp.mean(mses)
-        mpsnr = jnp.mean(psnrs)
-        mssim = jnp.mean(ssims)
-
-
-        return {'mse': mmse, 'psnr': mpsnr, 'ssim': mssim}
+        report = {
+            "mean_mse": mean_mse,
+            "mean_psnr": mean_psnr,
+            "mean_ssim": mean_ssim
+        }
+        report.update({
+            f"reconstruction_{int(i)}": predicted_image
+            for i, predicted_image in zip(self.indices, predicted_images)
+        })
+        return report
 
     @staticmethod
+    @jax.jit
     def mean_squared_error(x: jax.Array, y: jax.Array) -> jax.Array:
         return jnp.mean(jnp.square(x - y))
 
+
     @staticmethod
-    def peak_signal_to_noise_ratio(x: jax.Array, y: jax.Array) -> jax.Array:
-        peak = jnp.max(y)
-        return 10 * jnp.log10(peak ** 2 / jnp.mean(jnp.square(x - y)))
+    @jax.jit
+    def peak_signal_to_noise_ratio(mse:float, peak:float) -> jax.Array:
+        return 10 * (jnp.log10(peak) * 2  - jnp.log10(mse))
 
     @staticmethod
     def structured_similarity_index(x: jax.Array, y: jax.Array) -> float:
         """Compute the Structural Similarity Index (SSIM) between two images."""
-        return ssim(x, y)
-
-    @staticmethod
-    def wrap_inr(inr):
-        def wrapped(*args, **kwargs):
-            out = inr(*args, **kwargs)
-            if isinstance(out, tuple):
-                out = out[0]
-            out = out.squeeze()
-            return out
-
-        return wrapped
+        return ssim(x, y, channel_axis=-1, data_range=1.)

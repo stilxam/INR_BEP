@@ -3,6 +3,7 @@ The rendering utilities are based on the jaxnerf implementation from google-rese
 """
 from typing import Optional  # ,ClassVar
 import os
+import warnings
 # import multiprocessing
 
 import numpy as np
@@ -323,30 +324,11 @@ class ViewReconstructor(eqx.Module):
     """
     Reconstruct an image from a NeRF model.
     """
-
-
     renderer: Renderer
-    height: int
-    width: int
+    default_height: int
+    default_width: int
     focal: float
-    key: jax.Array
-
-    # num_coarse_samples: int
-    # num_fine_samples: int
-    # near: float
-    # far: float
-    # noise_std: Optional[float]
-    # white_bkgd: bool
-    # lindisp: bool
-    # randomized: bool
-    # height: int
-    # width: int
-    # folder: str
-    # batch_size: int
-    # key: jax.Array
-    # ray_directions: jax.Array
-    # ray_origins: jax.Array
-    # focal: float
+    batch_size: int
 
     def __init__(self,
                  num_coarse_samples: int,
@@ -357,18 +339,25 @@ class ViewReconstructor(eqx.Module):
                  white_bkgd: bool,
                  lindisp: bool,
                  randomized: bool,
-                 height: int,
-                 width: int,
-                 folder: str,
-                 key: jax.Array,
+                 batch_size:int,
+                 default_height: Optional[int] = None,
+                 default_width: Optional[int] = None,
+                 focal: Optional[float] = None,
+                 folder: Optional[str] = None,
                  ):
         """
         Initialize the ImageReconstructor
         """
-        self.height = height
-        self.width = width
-        self.focal = SyntheticScenesHelper.get_focal(folder)
-        self.key = key
+        # self.height = height
+        # self.width = width
+        if focal is not None:
+            self.focal = focal
+        elif folder is not None:
+            self.focal = SyntheticScenesHelper.get_focal(folder)
+        else: 
+            warnings.warn("Neither focal nor folder was specified, so create_image_from_pose will not be available.")
+            self.focal = None
+
         self.renderer = Renderer(
             num_coarse_samples=num_coarse_samples,
             num_fine_samples=num_fine_samples,
@@ -379,38 +368,56 @@ class ViewReconstructor(eqx.Module):
             lindisp=lindisp,
             randomized=randomized
         )
+        self.batch_size = batch_size
+        self.default_height = default_height
+        self.default_width = default_width
+        if default_height is None or default_width is None:
+            warnings.warn("create_image_from_pose will not be available because either no default height or no default width was specified.")
 
 
-    def __call__(self, nerf: NeRF, ray_directions, ray_origins, state: Optional[eqx.nn.State] = None):
+    def __call__(self, nerf: NeRF, ray_origin:jax.Array, ray_directions:jax.Array, key:jax.Array, state: Optional[eqx.nn.State] = None)->tuple[jax.Array, jax.Array]:
         """
         Render the image and depth map from a NeRF model.
         :param nerf: the NeRF model to be rendered
-        :param ray_directions: the directions of the rays to be cast
-        :param ray_origins: the origins of the rays to be cast
+        :param ray_origin: the origin of the rays to be cast  (3,)
+        :param ray_directions: the directions of the rays to be cast (height, width, 3)
         :param state: optional state for the NeRF model if needed (will not be updated or returned by this function)
         :return: rendered_image, depth_map, both as jnp.ndarray(float32), [height, width, 3] and [height, width] respectively
         """
-        # Flatten rays and repeat origins for each pixel
-        ray_origins_flat = jnp.tile(ray_origins[None, :], (self.height * self.width, 1))  # [H*W, 3]
-        ray_directions_flat = ray_directions.reshape(-1, 3)  # [H*W, 3]
+        height, width = ray_directions.shape[:2]
 
         # Generate random keys for each pixel
-        keys = jax.random.split(self.key, self.height * self.width)
+        keys_flat = jax.random.split(key, height*width)
 
-        # Vectorize rendering across all pixels
-        results = jax.vmap(self.renderer.render_nerf_pixel, in_axes=(None, 0, 0, 0, None))(
-            nerf,
-            ray_origins_flat,
-            ray_directions_flat,
-            keys,
-            state
+        ray_directions_flat = ray_directions.reshape(-1, 3)  # [H*W, 3]
+        ray_origins_flat = jnp.tile(ray_origin[None, :], (height * width, 1))  # [H*W, 3]
+
+        def pixel_renderer(ray_origin_ray_direction_key):
+            ray_origin, ray_direction, key = ray_origin_ray_direction_key
+            return self.renderer.render_nerf_pixel(nerf, ray_origin, ray_direction, key, state)
+
+        # Vectorize rendering in batches
+        results = jax.lax.map(
+            pixel_renderer,
+            (ray_directions_flat, ray_origins_flat, keys_flat),
+            batch_size=self.batch_size
         )
 
         # Extract and reshape RGB values
         rgbs = results["fine_rgb"]
-        rendered_image = rgbs.reshape((self.height, self.width, 3))
-        depth = results["fine_depth"].reshape((self.height, self.width))
+        rendered_image = rgbs.reshape((height, width, 3))
+        depth = results["fine_depth"].reshape((height, width))
         return rendered_image, depth
+    
+    def create_image_from_pose(self, nerf: NeRF, pose:jax.Array, key:jax.Array, state:Optional[eqx.nn.State]=None):
+        if self.focal is None:
+            raise NotImplementedError("create_image_from_pose is not available when self.focal is None")
+        if self.default_height is None:
+            raise NotImplementedError("create_image_from_pose is not available when self.default_height is None")
+        if self.default_width is None:
+            raise NotImplementedError("create_image_from_pose is not available when self.default_width is None")
+        ray_origin, ray_directions = SyntheticScenesHelper.generate_rays(self.default_height, self.default_width, self.focal, pose)
+        return self(nerf, ray_origin, ray_directions, key, state)
 
 
 

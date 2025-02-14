@@ -22,8 +22,16 @@ def main(
     with open(config, 'r') as config_file:
         config_dict = yaml.safe_load(config_file) # just a single config
 
+    if seed is None:
+        seed=randbelow(2**32)
+    print(f"Used seed: {seed}")
+    key = jax.random.PRNGKey(seed=seed)
+    key_gen = cju.key_generator(key)
+    print(f"Used key: {key}.")
+
     if config_dict.get("post_processor_type", None) is not None:
-        post_processor = cdu.config_realization.get_model_from_config(  # we put this before the training
+        post_processor = cju.run_utils.get_model_from_config_and_key(#cdu.config_realization.get_model_from_config(  # we put this before the training
+            prng_key=next(key_gen),
             config=config_dict,  # so that if there are any problems with the post_processing_config
             model_prompt = "post_processor_type",  # we find out before we spent time and resources training models
             default_module_key="components_module",
@@ -31,14 +39,8 @@ def main(
         )
         post_processor = post_processor.initialize()
     else:
+        next(key_gen)  # just so that the rest experiment gets the same keys regardless of whether we have a post processor
         post_processor = None
-
-    if seed is None:
-        seed=randbelow(2**32)
-    print(f"Used seed: {seed}")
-    key = jax.random.PRNGKey(seed=seed)
-    key_gen = cju.key_generator(key)
-    print(f"Used key: {key}.")
 
     wandb_group = config_dict["wandb_group"]
     wandb_entity = config_dict["wandb_entity"]
