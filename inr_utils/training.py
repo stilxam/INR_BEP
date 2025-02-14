@@ -474,7 +474,7 @@ def train_with_dataloader_scan(
         losses[cycle] = loss_array
         # jax.block_until_ready(loss_array)
         # t2 = time.time()
-        after_cycle_callback(cycle, loss_array.mean(), eqx.combine(carry[0], inr_static), carry[1], carry[2])
+        after_cycle_callback(cycle, loss_array.mean(), eqx.combine(carry[0], inr_static), carry[2], carry[1])
         # t3 = time.time()
         # print(f"collecting batches: {t1-t0}s,\ntraining: {t2-t1}s,\nafter_cycle_callback: {t3-t2}s\n")
     
