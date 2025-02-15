@@ -737,7 +737,7 @@ class JaccardAndReconstructionIndex(Metric):
         sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
 
 
-        sdf_grid = sdf_values.reshape(self.grid_resolution)
+        sdf_grid = np.array(sdf_values.reshape(self.grid_resolution))
         vertices, faces, normals, values = skimage.measure.marching_cubes(
             sdf_grid,
             level=0.0
