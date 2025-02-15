@@ -65,6 +65,7 @@ def run_parallel_experiments(
 
     post_processor = cju.run_utils.get_model_from_config_and_key( #cdu.config_realization.get_model_from_config(  # we put this before the training
         prng_key=next(key_gen),
+        add_model_module_to_architecture_default_module=False,
         config=post_processing_config,  # so that if there are any problems with the post_processing_config
         model_prompt = "post_processor_type",  # we find out before we spent time and resources training models
         default_module_key="components_module",
