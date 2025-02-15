@@ -3,7 +3,7 @@
 activation_kwargs:
     w0: [30., 35., 30., 25., 30., 35., 30., 25.]  # Reduced from 12 to 2 combinations
 
-learning_rate: [1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]  # Reduced accordingly
+learning_rate: [1.e-5, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4, 1.e-4, 1.5e-4]  # Reduced accordingly
 
 ---
 # Same shared configuration as audioex.yaml but with reduced steps
@@ -15,7 +15,7 @@ model_config:
   terms:
     - [inr_modules.MLPINR.from_config, {
         hidden_size: 256,
-        num_layers: 5,
+        num_layers: 3,
         layer_type: inr_layers.SirenLayer,
         num_splits: 1,
         use_complex: false,
@@ -32,23 +32,21 @@ loss_evaluator: losses.SoundLossEvaluator
 loss_function: losses.SoundLossEvaluator
 loss_evaluator_config:
   time_domain_weight: 1.0
-  frequency_domain_weight: 0.00001
-
-
+  frequency_domain_weight: 0.000001
 
 sampler: [sampling.SoundSampler, {
     window_size: 256,
-    batch_size: 64,
+    batch_size: 32,
     allow_pickle: true,
     fragment_length: null,
-    sound_fragment: ./example_data/data_gt_bach.npy
+    sound_fragment: ./example_data/Audio/Audio_entropy_top_5p/hiphop.00043.npy
 }]
 
 optimizer: adam
 optimizer_config:
   b1: 0.8
   b2: 0.999999
-steps: 20000  # Reduced from 20000 for faster testing
+steps: 30000  # Reduced from 20000 for faster testing
 
 ---
 # Same post-processing configuration but with reduced metrics frequency
@@ -56,19 +54,19 @@ components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
   - [metrics.AudioMetricsOnGrid, {
-      target_audio: ./example_data/data_gt_bach.npy,
+      target_audio: ./example_data/Audio/Audio_entropy_top_5p/hiphop.00043.npy,
       grid_size: null,  # Will use target audio length automatically
       batch_size: 1024,
-      sr: 16000,
+      sr: 22527,
       frequency: every_n_batches,
       save_path: ./results/local_test/reconstructed_example.wav
     }]
 
-batch_frequency: 100
+batch_frequency: 1
 
 storage_directory: results/local_test
 wandb_kwargs:
   project: inr_edu_24
-  group: audio_test8
+  group: audio_test3
 
 
