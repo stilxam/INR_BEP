@@ -584,10 +584,12 @@ class JaccardIndexSDF(Metric):
         grid_arrays = [np.linspace(-1, 1, res) for res in grid_resolution]
         grid_matrices = np.meshgrid(*grid_arrays, indexing='ij')
         self.grid_points = np.stack([m.reshape(-1) for m in grid_matrices], axis=-1)
-        self.resolution = grid_resolution[0]  # Assume uniform resolution for now
+        self.grid_resolution = grid_resolution  # Store as tuple
 
+        # Precompute target inside values
         self.target_inside = target_function(self.grid_points)
         self.batch_size = batch_size
+
 
     def compute(self, **kwargs):
         inr = kwargs['inr']
@@ -595,28 +597,21 @@ class JaccardIndexSDF(Metric):
 
         inr = self.wrap_inr(inr)
 
-        # pred_values = inr(self.grid_points)
-        # pred_values = jax.vmap(inr)(self.grid_points)
         sdf_values = evaluate_on_grid_batch_wise(inr, self.grid_points, batch_size=self.batch_size, apply_jit=False)
-        # Convert to occupancy grids (inside = True, outside = False)
-        sdf_reshaped = sdf_values.reshape((self.resolution, self.resolution, self.resolution))
 
-        vertices, faces, normals, values = skimage.measure.marching_cubes(np.array(sdf_reshaped), level=0.0)
 
-        shape = trimesh.Trimesh(vertices=vertices, faces=faces)
-        pred_inside = shape.contains(self.grid_points)
+        pred_inside = sdf_values <= 0
 
-        # Compute intersection and union
         intersection = np.logical_and(pred_inside, self.target_inside)
         union = np.logical_or(pred_inside, self.target_inside)
-
-        # Calculate Jaccard index
         intersection_sum = np.sum(intersection)
         union_sum = np.sum(union)
 
-        jaccard = 1.0 if union_sum == 0 else intersection_sum / union_sum
+        jaccard = intersection_sum / union_sum if union_sum != 0 else -1.0
 
-        return {'jaccard_index': float(jaccard)}
+        return {
+            'Naive Jaccard Index': jaccard,
+        }
 
     @staticmethod
     def wrap_inr(inr):
