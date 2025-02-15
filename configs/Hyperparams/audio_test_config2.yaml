@@ -15,7 +15,7 @@ model_config:
   terms:
     - [inr_modules.MLPINR.from_config, {
         hidden_size: 256,
-        num_layers: 5,
+        num_layers: 3,
         layer_type: inr_layers.SirenLayer,
         num_splits: 1,
         use_complex: false,
@@ -39,7 +39,7 @@ sampler: [sampling.SoundSampler, {
     batch_size: 32,
     allow_pickle: true,
     fragment_length: null,
-    sound_fragment: ./example_data/data_gt_bach.npy
+    sound_fragment: ./example_data/Audio/Audio_entropy_5p_25p/hiphop.00080.npy
 }]
 
 optimizer: adam
@@ -54,10 +54,10 @@ components_module: ./inr_utils/
 post_processor_type: post_processing.PostProcessor
 metrics: 
   - [metrics.AudioMetricsOnGrid, {
-      target_audio: ./example_data/data_gt_bach.npy,
+      target_audio: ./example_data/Audio/Audio_entropy_5p_25p/hiphop.00080.npy,
       grid_size: null,  # Will use target audio length automatically
       batch_size: 1024,
-      sr: 16000,
+      sr: 21000,
       frequency: every_n_batches,
       save_path: ./results/local_test/reconstructed_example.wav
     }]
@@ -67,4 +67,6 @@ batch_frequency: 1
 storage_directory: results/local_test
 wandb_kwargs:
   project: inr_edu_24
-  group: audio_test
+  group: audio_testtt
+
+
