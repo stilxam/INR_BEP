@@ -121,8 +121,8 @@ def get_2d_sweep_configuration() -> Dict[str, Any]:
             "layer_type": {
                 "values": [
                     "inr_layers.ComplexWIRE",
-                    # "inr_layers.RealWIRE",
-                    # "inr_layers.SuperGaussianLayer",
+                    "inr_layers.RealWIRE",
+                    "inr_layers.SuperGaussianLayer",
                 ]
             },
             "w0": {

@@ -69,12 +69,6 @@ class SDFDataLoader:
         self.grid_points = jnp.array(np.stack([m.reshape(-1) for m in grid_matrices], axis=-1))
         self.resolution = grid_resolution[0]  # Assume uniform resolution for now
 
-        # print(f"{self.grid_points.shape=}")
-        self.distances = jnp.array(trimesh.proximity.signed_distance(self.mesh, self.grid_points)) # samples, 1
-
-
-
-
 
     def __iter__(self):
         with jax.default_device(self._cpu):
@@ -98,17 +92,13 @@ class SDFDataLoader:
         Loads the normalized point cloud from the file and generates batches of surface and off-surface points
         """
         idx = jax.random.choice(key, self.coords.shape[0], shape=(self.on_surface_count,), replace=True)
-        # off_surface_coords = jax.random.uniform(
-            # key, shape=(self.off_surface_count, 3), minval=-1., maxval=1.)
-        idoffsurfaces = jax.random.choice(key, self.resolution**3, shape=(self.off_surface_count,), replace=True)
-        off_surface_coords = self.grid_points[idoffsurfaces]
-
+        off_surface_coords = jax.random.uniform(
+            key, shape=(self.off_surface_count, 3), minval=-1., maxval=1.)
 
         off_surface_normals = jnp.ones((self.off_surface_count, 3)) * -1.
 
         sp_sdf = jnp.zeros((self.on_surface_count, 1))
-        # nsp_sdf = jnp.ones((self.off_surface_count, 1)) * -1
-        nsp_sdf = self.distances[idoffsurfaces].reshape(-1, 1)
+        nsp_sdf = jnp.ones((self.off_surface_count, 1)) * -1
 
         coords = jnp.concatenate([self.coords[idx], off_surface_coords], axis=0)
         normals = jnp.concatenate([self.normals[idx], off_surface_normals], axis=0)
