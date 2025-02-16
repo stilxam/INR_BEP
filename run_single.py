@@ -11,7 +11,13 @@ import wandb
 
 import common_jax_utils as cju
 import common_dl_utils as cdu
+import jax.numpy as jnp
 
+
+from ntk.sweep import make_init_apply
+from ntk.analysis import get_NTK_ntvp, decompose_ntk, measure_of_diagonal_strength
+from ntk.visualization import plot_ntk_kernels
+from inr_utils.images import make_lin_grid
 
 
 def main(
@@ -52,8 +58,27 @@ def main(
         project=wandb_project, 
         entity=wandb_entity
         ):
+        init_key = next(key_gen)
+        if config_dict.get("compute_ntk", False):
+            init_fn, apply_fn, inr = make_init_apply(config_dict, init_key)
+            params = init_fn()
+            in_dims = config_dict.model_config.in_size
+            grid_size = int(100**(1/in_dims))
+            locations = make_lin_grid(0, 1, grid_size, in_dims)
+            flat_locations = locations.reshape(-1, in_dims)
+            ntvp = get_NTK_ntvp(apply_fn)
+            NTK = ntvp(flat_locations, flat_locations, params)
+            _, _, _, condition_number = decompose_ntk(NTK)
+            lin_measure = measure_of_diagonal_strength(NTK, map_kwarg=0)
+            ntk_vis = plot_ntk_kernels(NTK, config_dict["model_config"]["layer_type"], config_dict["model_config"]["activation_kwargs"])
+            wandb.log({
+                "ntk_condition_number": jnp.log(condition_number + 1e-5),
+                "lin_measure": float(lin_measure),
+                "ntk_plot": wandb.Image(ntk_vis),
+            })
+
         experiment = cju.run_utils.get_experiment_from_config_and_key(
-            prng_key=next(key_gen),
+            prng_key=init_key,
             config=config_dict,
             model_kwarg_in_trainer='inr',
             model_sub_config_name_base='model',  # so it looks for "model_config" in config

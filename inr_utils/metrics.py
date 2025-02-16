@@ -197,6 +197,7 @@ class MSEOnFixedGrid(Metric):
             batch_size: int,
             frequency: str,
             num_dims: Union[int, None] = None,
+            use_wandb: bool = True,
     ):
         """ 
         :parameter target_function: the target function to compare the INR to
@@ -229,39 +230,95 @@ class MSEOnFixedGrid(Metric):
         self._batch_size = batch_size
         self.frequency = MetricFrequency(frequency)
 
+        if use_wandb:
+            import wandb  # weights and biases
+        self._Image = partial(PIL.Image.fromarray, mode='RGB') if not use_wandb else wandb.Image
+
+        _image_min = jnp.min(target_function.underlying_image)
+        _image_max = jnp.max(target_function.underlying_image)
+
         @eqx.filter_jit
         def _evaluate_by_batch(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
             results = evaluate_on_grid_batch_wise(inr, grid, batch_size, False)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
             if data_index is not None:
                 target = partial(target_function, data_index=data_index)
             else:
                 target = target_function
             reference = evaluate_on_grid_batch_wise(target, grid, batch_size, False)
-            return mse_loss(results, reference)
+            return mse_loss(results, reference), results
 
         @eqx.filter_jit
         def _evaluate_at_once(inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
             results = evaluate_on_grid_vmapped(inr, grid)
+            # scale results
+            _results_min = jnp.min(results)
+            _results_max = jnp.max(results)
+            results = (results - _results_min) / (_results_max - _results_min)  # scale to [0, 1]
+            results = results * (_image_max - _image_min) + _image_min  # scale to actual image scale
             if data_index is not None:
                 target = partial(target_function, data_index=data_index)
             else:
                 target = target_function
             reference = evaluate_on_grid_vmapped(target, grid)
-            return mse_loss(results, reference)
+            return mse_loss(results, reference), results
 
         if batch_size:
             self._evaluate_on_grid = _evaluate_by_batch
         else:
             self._evaluate_on_grid = _evaluate_at_once
 
+        self.batch_size = batch_size
+
     def compute(self, **kwargs):
         inr = kwargs['inr']
         state = kwargs.get("state", None)
         data_index = kwargs.get("data_index", None)
-        if state is not None:
-            inr = handle_state(inr, state)
-        mse = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
-        return {'MSE_on_fixed_grid': mse}
+        inr = self.wrap_inr(inr)
+
+        # mse = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
+        mse, resulting_image = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
+
+        # resulting_image = evaluate_on_grid_batch_wise(inr, self.grid, self.batch_size, False)
+  
+        psnr = self.peak_signal_to_noise_ratio(mse, 1)
+        stsidx = self.evaluate_ssim(inr, self.grid, data_index=data_index)
+
+        return {'MSE_on_fixed_grid': mse, "PSNR": psnr, "SSIM": stsidx, 'image_on_grid':self._Image(np.asarray(resulting_image))}
+    
+    @staticmethod
+    @jax.jit
+    def peak_signal_to_noise_ratio(mse:float, peak:float) -> jax.Array:
+        return 10 * (jnp.log10(peak) * 2  - jnp.log10(mse))
+    
+    @staticmethod
+    def structured_similarity_index(x: jax.Array, y: jax.Array) -> float:
+        """Compute the Structural Similarity Index (SSIM) between two images."""
+        return ssim(x, y, channel_axis=-1, data_range=1.)
+    
+    def evaluate_ssim(self, inr: eqx.Module, grid: jax.Array, data_index: Optional[Union[int, jax.Array]]):
+        results = evaluate_on_grid_batch_wise(inr, grid, self.batch_size, False)
+        if data_index is not None:
+            target = partial(self.target_function, data_index=data_index)
+        else:
+            target = self.target_function
+        reference = evaluate_on_grid_batch_wise(target, grid, self.batch_size, False)
+        return self.structured_similarity_index(results, reference)
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
     
 class ImageGradMetrics(Metric):
     """ 
@@ -359,7 +416,11 @@ class ImageGradMetrics(Metric):
         if state is not None:
             inr = handle_state(inr, state)
         mse, resulting_image = self._evaluate_on_grid(inr, self.grid, data_index=data_index)
-        return {'MSE_on_fixed_grid': mse, 'image_on_grid':self._Image(np.asarray(resulting_image))}
+
+        psnr = self.peak_signal_to_noise_ratio(mse, 1)
+        stsidx = self.evaluate_ssim(inr, self.grid, data_index=data_index)
+
+        return {'MSE_on_fixed_grid': mse, "PSNR": psnr, "SSIM": stsidx, 'image_on_grid':self._Image(np.asarray(resulting_image))}
 
 
 
