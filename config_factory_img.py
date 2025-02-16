@@ -12,7 +12,7 @@ variable = VariableCollector()
 
 dataset_path = './DIV2K'
 start_data_index = 0
-end_data_index = 5
+end_data_index = 1
 
 
 def put_all_data_in(dataset_path, start_data_index, end_data_index, top_level_name="entropy_class",
@@ -43,7 +43,7 @@ config.architecture = './model_components'  # module containing all relevant cla
 config.model_type = 'inr_modules.CombinedINR'
 
 config.model_config = Config()
-config.get_ntk = True
+config.compute_ntk = True
 config.model_config.in_size = 2
 config.model_config.out_size = 3
 config.model_config.terms = [
