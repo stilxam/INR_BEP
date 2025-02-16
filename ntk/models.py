@@ -8,10 +8,10 @@ import common_jax_utils as cju
 
 
 
-def make_init_apply(config: Config, key_gen: Generator) -> Tuple[Callable, Callable, Callable]:
+def make_init_apply(config: Config, key: jax.Array) -> Tuple[Callable, Callable, Callable]:
     """Create initialization and apply functions for an MLP model."""
     inr = cju.run_utils.get_model_from_config_and_key(
-        prng_key=next(key_gen),
+        prng_key=key,
         config=config,
         model_sub_config_name_base="model",
         add_model_module_to_architecture_default_module=False,
