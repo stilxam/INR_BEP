@@ -32,7 +32,7 @@ loss_evaluator: losses.SoundLossEvaluator
 loss_function: losses.SoundLossEvaluator
 loss_evaluator_config:
   time_domain_weight: 1.0
-  frequency_domain_weight: 0.0000001
+  frequency_domain_weight: 0.000001
 
 sampler: [sampling.SoundSampler, {
     window_size: 256,

@@ -33,7 +33,8 @@ wandb login "$wandblogin"
 
 
 echo 'Starting new experiment!';
-python run_parallel.py --config=./configs/Hyperparams/example.yaml
+# python run_parallel.py --config=./configs/Hyperparams/example.yaml
+python run_parallel.py --config=./configs/Hyperparams/audio_test_config.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERk.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERkt.yaml
 # python run_parallel.py --config=./configs/Hyperparams/FINERkt2.yaml   
