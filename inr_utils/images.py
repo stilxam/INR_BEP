@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from matplotlib import colors
 import numpy as np
 from matplotlib import animation
+import os
 
 def scaled_array_to_image(arr: jax.Array)->jax.Array:
     """scaled_array_to_image 
@@ -454,3 +455,19 @@ def image_laplacian(image: jax.Array)->jax.Array:
     lap_x = (lap_x - jnp.min(lap_x)) / (jnp.max(lap_x) - jnp.min(lap_x))
     lap_y = (lap_y - jnp.min(lap_y)) / (jnp.max(lap_y) - jnp.min(lap_y))
     return lap_x + lap_y
+
+def store_dataset_grads(input_folder, output_folder):
+
+    for subfolder in os.listdir(input_folder):
+        subfolder_path = os.path.join(input_folder, subfolder)
+
+        if os.path.isdir(subfolder_path):
+            output_subfolder = os.path.join(output_folder, subfolder + "_grad")
+            os.makedirs(output_subfolder, exist_ok=True)
+            
+            for filename in os.listdir(subfolder_path):
+                image_path = os.path.join(subfolder_path, filename)
+                output_path = os.path.join(output_subfolder, filename[:-4]) # [:-4] to avoid saving as image.png.npy, but just image.npy
+
+                processed_image = image_grads_alternative(rgb_to_grayscale(load_image_as_array(image_path)))
+                jnp.save(output_path, processed_image)

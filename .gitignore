@@ -14,18 +14,9 @@ example_data/*.ply
 example_data/*.xyz
 
 /example_data/
-/DIV2k/
-/DIV2k_entropy_5p_25p/
-/DIV2k_entropy_25p_75p/
-/DIV2k_entropy_75p_95p/
-/DIV2k_entropy_bottom_5p/
-/DIV2k_entropy_top_5p/
+/DIV2K/
+/DIV2K_grad/
 /GTZAN/
-/GTZAN_entropy_5p_25p/
-/GTZAN_entropy_25p_75p/
-/GTZAN_entropy_75p_95p/
-/GTZAN_entropy_bottom_5p/
-/GTZAN_entropy_top_5p/
 /results
 /synthetic_scenes
 .vscode
@@ -43,7 +34,7 @@ synthetic_scenes.zip
 /results
 /factory_slurm
 /factory_configs
-wandb_login
+wandb.login
 example_slurm_script.bash
 configs/example.yaml
 configs/example2.yaml
