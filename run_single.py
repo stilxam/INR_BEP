@@ -16,6 +16,7 @@ import jax.numpy as jnp
 
 from ntk.sweep import make_init_apply
 from ntk.analysis import get_NTK_ntvp, decompose_ntk, measure_of_diagonal_strength
+from ntk.visualization import plot_ntk_kernels
 from inr_utils.images import make_lin_grid
 
 
@@ -69,9 +70,11 @@ def main(
             NTK = ntvp(flat_locations, flat_locations, params)
             _, _, _, condition_number = decompose_ntk(NTK)
             lin_measure = measure_of_diagonal_strength(NTK, map_kwarg=0)
+            ntk_vis = plot_ntk_kernels(NTK, config_dict["model_config"]["layer_type"], config_dict["model_config"]["activation_kwargs"])
             wandb.log({
                 "ntk_condition_number": jnp.log(condition_number + 1e-5),
                 "lin_measure": float(lin_measure),
+                "ntk_plot": wandb.Image(ntk_vis),
             })
 
         experiment = cju.run_utils.get_experiment_from_config_and_key(
