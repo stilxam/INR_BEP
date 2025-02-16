@@ -257,6 +257,18 @@ class SoundLossEvaluator(eqx.Module):
     time_domain_weight: float
     frequency_domain_weight: float 
     state_update_function: Optional[Callable] = None
+    
+    @staticmethod
+    def wrap_inr(inr):
+        def wrapped(*args, **kwargs):
+            out = inr(*args, **kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.squeeze()
+            return out
+
+        return wrapped
+
 
     def __call__(self, inr: eqx.Module, locations: tuple[jax.Array, jax.Array], state: Optional[eqx.nn.State] = None) -> tuple[float, Optional[eqx.nn.State]]:
         """
@@ -274,11 +286,15 @@ class SoundLossEvaluator(eqx.Module):
 
         # Evaluate INR at time points - vmap over batch and window dimensions
         #inr_values = jax.vmap(lambda t: jax.vmap(lambda ti: inr(ti))(t))(time_points)
-        if state is None:
-            inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
-        else:
-            inr_values, _ = jax.vmap(jax.vmap(inr, (0, None)), (0, None))(time_points, state)
-        inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
+        # if state is None:
+        #     inr_values = jax.vmap(jax.vmap(inr))(time_points)  #should also work, but might need to adjust in and out axes
+        # else:
+        #     inr_values, _ = jax.vmap(jax.vmap(inr, (0, None)), (0, None))(time_points, state)
+        inr = self.wrap_inr(inr)
+        
+        inr_values = jax.vmap(jax.vmap(inr))(time_points).squeeze()
+        
+        # inr_values = jnp.squeeze(inr_values, axis=-1)  # Remove last dimension of shape 1
 
         # Calculate time domain MSE loss
         time_loss = mse_loss(inr_values, pressure_values)
@@ -288,10 +304,11 @@ class SoundLossEvaluator(eqx.Module):
         true_fft = jax.vmap(jnp.fft.fft)(pressure_values)
 
         # Calculate frequency domain loss using magnitudes
-        freq_loss = mse_loss(jnp.abs(inr_fft), jnp.abs(true_fft))
+        freq_loss = mse_loss(jnp.abs(inr_fft), jnp.abs(true_fft)).squeeze()
 
         # Combine losses with weights
-        total_loss = self.time_domain_weight * time_loss + self.frequency_domain_weight * freq_loss
+
+        total_loss = self.time_domain_weight * time_loss + float(self.frequency_domain_weight) * (freq_loss)
 
         if self.state_update_function is not None:  # update state if necessary
             # this is e.g. for the progressive training in the integer lattice mapping

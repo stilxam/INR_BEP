@@ -907,7 +907,7 @@ class FinerLayer(INRLayer):
 
 
     @classmethod
-    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, learnable_kwarg_keys: Optional[tuple[str, ...]] = None, *, key: jax.Array, is_first_layer: bool, bias_k:float, **activation_kwargs):
+    def from_config(cls, in_size: int, out_size: int, num_splits: int = 1, learnable_kwarg_keys: Optional[tuple[str, ...]] = None, *, key: jax.Array, is_first_layer: bool, bias_k:float=1.0, **activation_kwargs):
 
         """
         Initialize FINER layer from hyperparameters
