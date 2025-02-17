@@ -73,7 +73,7 @@ def main(
             ntvp = get_NTK_ntvp(apply_fn)
             NTK = ntvp(flat_locations, flat_locations, params)
 
-            if NTK.ndim > 2:
+            if NTK.ndim > 3:
                 NTK = flatten_kernel(NTK)
             _, _, _, condition_number = decompose_ntk(NTK)
             lin_measure = measure_of_diagonal_strength(NTK, map_kwarg=0)
