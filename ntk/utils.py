@@ -15,4 +15,4 @@ def layer_name_to_title(layer_name: str) -> str:
         "inr_layers.SuperGaussianLayer": "Super Gaussian",
         "inr_layers.ExpSinLayer": "Exponential Sine",
     }
-    return titles[layer_name]
+    return titles.get(layer_name, layer_name)
