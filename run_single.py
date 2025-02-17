@@ -62,7 +62,7 @@ def main(
         if config_dict.get("compute_ntk", False):
             init_fn, apply_fn, inr = make_init_apply(config_dict, init_key)
             params = init_fn()
-            in_dims = config_dict.model_config.in_size
+            in_dims = config_dict["model_config"]["in_dims"]
             grid_size = int(100**(1/in_dims))
             locations = make_lin_grid(0, 1, grid_size, in_dims)
             flat_locations = locations.reshape(-1, in_dims)
