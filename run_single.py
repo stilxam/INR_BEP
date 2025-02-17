@@ -18,7 +18,11 @@ from ntk.sweep import make_init_apply
 from ntk.analysis import get_NTK_ntvp, decompose_ntk, measure_of_diagonal_strength
 from ntk.visualization import plot_ntk_kernels
 from inr_utils.images import make_lin_grid
+from matplotlib import pyplot as plt
 
+
+def flatten_kernel(K):
+    return K.transpose([0, 2, 1, 3]).reshape([K.shape[0] * K.shape[2], K.shape[1] * K.shape[3]])
 
 def main(
         config:str,
@@ -62,15 +66,20 @@ def main(
         if config_dict.get("compute_ntk", False):
             init_fn, apply_fn, inr = make_init_apply(config_dict, init_key)
             params = init_fn()
-            in_dims = config_dict["model_config"]["in_dims"]
+            in_dims = config_dict["model_config"]["in_size"]
             grid_size = int(100**(1/in_dims))
             locations = make_lin_grid(0, 1, grid_size, in_dims)
             flat_locations = locations.reshape(-1, in_dims)
             ntvp = get_NTK_ntvp(apply_fn)
             NTK = ntvp(flat_locations, flat_locations, params)
+
+            if NTK.ndim > 2:
+                NTK = flatten_kernel(NTK)
             _, _, _, condition_number = decompose_ntk(NTK)
             lin_measure = measure_of_diagonal_strength(NTK, map_kwarg=0)
-            ntk_vis = plot_ntk_kernels(NTK, config_dict["model_config"]["layer_type"], config_dict["model_config"]["activation_kwargs"])
+
+            ntk_vis = plot_ntk_kernels(NTK, config_dict["model_config"]["terms"][0][1]["layer_type"], config_dict["model_config"]["terms"][0][1]["activation_kwargs"])
+
             wandb.log({
                 "ntk_condition_number": jnp.log(condition_number + 1e-5),
                 "lin_measure": float(lin_measure),
